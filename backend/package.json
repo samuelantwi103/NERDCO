@@ -1,0 +1,29 @@
+{
+  "name": "nerdco",
+  "private": true,
+  "scripts": {
+    "auth": "pnpm --filter auth-service dev",
+    "incident": "pnpm --filter incident-service dev",
+    "tracking": "pnpm --filter tracking-service dev",
+    "analytics": "pnpm --filter analytics-service dev",
+    "typecheck": "pnpm --filter @nerdco/domain-types build && pnpm --filter @nerdco/domain-types typecheck && pnpm -r --parallel --filter \"!@nerdco/domain-types\" typecheck && pnpm typecheck:integration",
+    "build": "pnpm --filter @nerdco/domain-types build && pnpm -r --parallel --filter \"!@nerdco/domain-types\" build",
+    "typecheck:integration": "tsc --noEmit -p integration-tests/tsconfig.json",
+    "test:integration": "tsx --test integration-tests/**/*.test.ts",
+    "migrate": "node scripts/migrate.mjs",
+    "seed": "node scripts/seed.mjs",
+    "test:e2e": "node scripts/test-e2e.mjs",
+    "test:ws": "node scripts/test-websocket.mjs",
+    "test:race": "node scripts/test-race-condition.mjs"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.8",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^25.5.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

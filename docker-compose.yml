@@ -1,0 +1,90 @@
+# NERDCO — Docker Compose for deployment/demo server
+# Usage: docker compose up --build
+#
+# Expects .env files to be populated in each service folder.
+# Databases and RabbitMQ are cloud-hosted (Neon + CloudAMQP) — not in this file.
+#
+# Services:
+#   auth-service      → http://localhost:3001
+#   incident-service  → http://localhost:3002
+#   tracking-service  → http://localhost:3003  (+ ws://localhost:3003/ws/vehicles)
+#   analytics-service → http://localhost:3004
+
+version: '3.9'
+
+services:
+
+  auth-service:
+    build:
+      context: ./backend
+      dockerfile: auth-service/Dockerfile
+    container_name: nerdco-auth
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./backend/auth-service/.env
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  incident-service:
+    build:
+      context: ./backend
+      dockerfile: incident-service/Dockerfile
+    container_name: nerdco-incident
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    env_file:
+      - ./backend/incident-service/.env
+    environment:
+      - TRACKING_SERVICE_URL=http://tracking-service:3003
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  tracking-service:
+    build:
+      context: ./backend
+      dockerfile: tracking-service/Dockerfile
+    container_name: nerdco-tracking
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    env_file:
+      - ./backend/tracking-service/.env
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3003/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  analytics-service:
+    build:
+      context: ./backend
+      dockerfile: analytics-service/Dockerfile
+    container_name: nerdco-analytics
+    restart: unless-stopped
+    ports:
+      - "3004:3004"
+    env_file:
+      - ./backend/analytics-service/.env
+    depends_on:
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3004/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
