@@ -6,4 +6,4 @@
 /backend/auth-service/dist
 /backend/analytics-service/dist
 /backend/tracking-service/dist
-/backend/scripts
+# /backend/scripts

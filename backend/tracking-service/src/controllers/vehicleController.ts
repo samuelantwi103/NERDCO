@@ -6,6 +6,20 @@ const { broadcast } = require('../websocket/wsServer');
 const VALID_TYPES   = ['ambulance', 'police_car', 'fire_truck'];
 const VALID_STATUSES = ['available', 'dispatched', 'unavailable'];
 
+function canManageVehicle(user, vehicle) {
+  if (user.role === 'first_responder') {
+    return vehicle.driver_user_id === user.sub;
+  }
+  if (user.role === 'org_admin') {
+    return !!user.org && vehicle.organization_id === user.org;
+  }
+  return true; // system_admin
+}
+
+function canViewVehicle(user, vehicle) {
+  return canManageVehicle(user, vehicle);
+}
+
 async function register(req, res) {
   const { organization_id, organization_type, vehicle_type, license_plate, driver_user_id } = req.body;
   if (!organization_id || !organization_type || !vehicle_type || !license_plate) {
@@ -25,7 +39,15 @@ async function register(req, res) {
 
 async function list(req, res) {
   try {
-    res.json({ vehicles: await vehicleRepo.findAll(req.query) });
+    const filters = { ...req.query };
+    if (req.user.role === 'first_responder') {
+      filters.driverUserId = req.user.sub;
+      delete filters.organizationId;
+    } else if (req.user.role === 'org_admin') {
+      filters.organizationId = req.user.org;
+      delete filters.driverUserId;
+    }
+    res.status(200).json({ vehicles: await vehicleRepo.findAll(filters) });
   } catch {
     res.status(500).json({ error: 'server_error', message: 'Internal server error' });
   }
@@ -35,7 +57,10 @@ async function getOne(req, res) {
   try {
     const vehicle = await vehicleRepo.findById(req.params.id);
     if (!vehicle) return res.status(404).json({ error: 'not_found', message: 'Vehicle not found' });
-    res.json({ vehicle });
+    if (!canViewVehicle(req.user, vehicle)) {
+      return res.status(403).json({ error: 'forbidden', message: 'Insufficient permissions for this vehicle' });
+    }
+    res.status(200).json({ vehicle });
   } catch {
     res.status(500).json({ error: 'server_error', message: 'Internal server error' });
   }
@@ -45,7 +70,10 @@ async function getLocation(req, res) {
   try {
     const vehicle = await vehicleRepo.findById(req.params.id);
     if (!vehicle) return res.status(404).json({ error: 'not_found', message: 'Vehicle not found' });
-    res.json({ latitude: vehicle.latitude, longitude: vehicle.longitude, last_updated: vehicle.last_updated });
+    if (!canViewVehicle(req.user, vehicle)) {
+      return res.status(403).json({ error: 'forbidden', message: 'Insufficient permissions for this vehicle' });
+    }
+    res.status(200).json({ latitude: vehicle.latitude, longitude: vehicle.longitude, last_updated: vehicle.last_updated });
   } catch {
     res.status(500).json({ error: 'server_error', message: 'Internal server error' });
   }
@@ -57,6 +85,12 @@ async function updateLocation(req, res) {
     return res.status(400).json({ error: 'validation', message: 'latitude and longitude are required' });
   }
   try {
+    const existing = await vehicleRepo.findById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'not_found', message: 'Vehicle not found' });
+    if (!canManageVehicle(req.user, existing)) {
+      return res.status(403).json({ error: 'forbidden', message: 'You can only update your assigned vehicle' });
+    }
+
     const vehicle = await vehicleRepo.updateLocation({ id: req.params.id, latitude, longitude });
     if (!vehicle) return res.status(404).json({ error: 'not_found', message: 'Vehicle not found' });
 
@@ -67,28 +101,40 @@ async function updateLocation(req, res) {
     publish('vehicle.location.updated', payload);
     broadcast({ type: 'vehicle.location.updated', payload });
 
-    res.json({ message: 'Location updated' });
+    res.status(200).json({ message: 'Location updated' });
   } catch {
     res.status(500).json({ error: 'server_error', message: 'Internal server error' });
   }
 }
 
 async function updateStatus(req, res) {
-  const { status } = req.body;
+  const { status, incident_id } = req.body;
   if (!VALID_STATUSES.includes(status)) {
     return res.status(400).json({ error: 'validation', message: `status must be one of: ${VALID_STATUSES.join(', ')}` });
   }
+  // first_responder cannot set dispatched (dispatch is an operator/system action)
+  if (req.user.role === 'first_responder' && status === 'dispatched') {
+    return res.status(403).json({ error: 'forbidden', message: 'Field responders cannot set status to dispatched' });
+  }
   try {
-    const vehicle = await vehicleRepo.updateStatus({ id: req.params.id, newStatus: status });
+    const existing = await vehicleRepo.findById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'not_found', message: 'Vehicle not found' });
+    if (!canManageVehicle(req.user, existing)) {
+      return res.status(403).json({ error: 'forbidden', message: 'You can only update your assigned vehicle' });
+    }
+
+    const vehicle = await vehicleRepo.updateStatus({ id: req.params.id, newStatus: status, incidentId: incident_id || null });
     if (!vehicle) {
       // Row exists but status condition failed — concurrent dispatch claimed it first
       return res.status(409).json({ error: 'conflict', message: 'Vehicle is no longer available' });
     }
     publish('vehicle.status.changed', {
       vehicle_id: vehicle.id, vehicle_type: vehicle.vehicle_type,
-      organization_id: vehicle.organization_id, new_status: status, changed_at: new Date().toISOString(),
+      organization_id: vehicle.organization_id, new_status: status,
+      current_incident_id: vehicle.current_incident_id || null,
+      changed_at: new Date().toISOString(),
     });
-    res.json({ message: `Vehicle status updated to ${status}` });
+    res.status(200).json({ message: `Vehicle status updated to ${status}`, vehicle });
   } catch {
     res.status(500).json({ error: 'server_error', message: 'Internal server error' });
   }

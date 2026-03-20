@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  # ── Job 1: Typecheck + Build ─────────────────────────────────────────────
+  # Runs on every push and PR. No secrets required.
+  typecheck-and-build:
+    name: Typecheck & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: backend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install
+        working-directory: backend
+
+      - name: Typecheck all packages (zero errors required)
+        run: pnpm typecheck
+        working-directory: backend
+
+      - name: Build all packages
+        run: pnpm build
+        working-directory: backend
+
+  # ── Job 2: Live Integration Tests ────────────────────────────────────────
+  # Runs only when Neon + CloudAMQP secrets are available (i.e. on protected branches).
+  # Skipped automatically on forks where secrets are not present.
+  integration-tests:
+    name: Integration & E2E Tests
+    runs-on: ubuntu-latest
+    needs: typecheck-and-build
+    if: >
+      vars.RUN_LIVE_TESTS == 'true' ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/master')
+
+    env:
+      # Auth DB
+      AUTH_DATABASE_URL:      ${{ secrets.AUTH_DATABASE_URL }}
+      # Incident DB
+      INCIDENT_DATABASE_URL:  ${{ secrets.INCIDENT_DATABASE_URL }}
+      # Tracking DB
+      TRACKING_DATABASE_URL:  ${{ secrets.TRACKING_DATABASE_URL }}
+      # Analytics DB
+      ANALYTICS_DATABASE_URL: ${{ secrets.ANALYTICS_DATABASE_URL }}
+      # RabbitMQ
+      RABBITMQ_URL:           ${{ secrets.RABBITMQ_URL }}
+      # RS256 keys (shared across services in CI)
+      JWT_PRIVATE_KEY:        ${{ secrets.JWT_PRIVATE_KEY }}
+      JWT_PUBLIC_KEY:         ${{ secrets.JWT_PUBLIC_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: backend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install
+        working-directory: backend
+
+      - name: Build all packages
+        run: pnpm build
+        working-directory: backend
+
+      - name: Write .env files for each service
+        working-directory: backend
+        run: |
+          # auth-service
+          cat > auth-service/.env <<EOF
+          DATABASE_URL=$AUTH_DATABASE_URL
+          PORT=3001
+          JWT_PRIVATE_KEY=$JWT_PRIVATE_KEY
+          JWT_PUBLIC_KEY=$JWT_PUBLIC_KEY
+          EOF
+
+          # incident-service
+          cat > incident-service/.env <<EOF
+          DATABASE_URL=$INCIDENT_DATABASE_URL
+          PORT=3002
+          JWT_PUBLIC_KEY=$JWT_PUBLIC_KEY
+          RABBITMQ_URL=$RABBITMQ_URL
+          TRACKING_SERVICE_URL=http://localhost:3003
+          EOF
+
+          # tracking-service
+          cat > tracking-service/.env <<EOF
+          DATABASE_URL=$TRACKING_DATABASE_URL
+          PORT=3003
+          JWT_PUBLIC_KEY=$JWT_PUBLIC_KEY
+          RABBITMQ_URL=$RABBITMQ_URL
+          EOF
+
+          # analytics-service
+          cat > analytics-service/.env <<EOF
+          DATABASE_URL=$ANALYTICS_DATABASE_URL
+          PORT=3004
+          JWT_PUBLIC_KEY=$JWT_PUBLIC_KEY
+          RABBITMQ_URL=$RABBITMQ_URL
+          EOF
+
+      - name: Run migrations
+        run: pnpm migrate
+        working-directory: backend
+
+      - name: Seed demo data
+        run: pnpm seed
+        working-directory: backend
+
+      - name: Start all services
+        working-directory: backend
+        run: |
+          node -r ./auth-service/dist/index.js &
+          node ./auth-service/dist/index.js &
+          node ./incident-service/dist/index.js &
+          node ./tracking-service/dist/index.js &
+          node ./analytics-service/dist/index.js &
+          sleep 8
+
+      - name: Run integration tests
+        run: pnpm test:integration
+        working-directory: backend
+
+      - name: Run E2E scenario tests
+        run: pnpm test:e2e
+        working-directory: backend
+
+      - name: Run authorization regression tests
+        run: pnpm test:regression
+        working-directory: backend
+
+      - name: Run WebSocket tests
+        run: pnpm test:ws
+        working-directory: backend
+
+      - name: Run race condition tests
+        run: pnpm test:race
+        working-directory: backend

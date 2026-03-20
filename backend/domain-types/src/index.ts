@@ -1,9 +1,9 @@
 export type UserRole =
-  | 'system_admin'
-  | 'hospital_admin'
-  | 'police_admin'
-  | 'fire_admin'
-  | 'ambulance_driver';
+  | 'system_admin'   // national operations centre — sees everything
+  | 'org_admin'      // per-station/hospital admin — scoped to their organization_id
+  | 'first_responder'; // field agents (drivers, officers, crew) — mobile app only
+
+export type OrgType = 'hospital' | 'ambulance_service' | 'police_station' | 'fire_station';
 
 export type IncidentType = 'medical' | 'fire' | 'robbery' | 'crime';
 export type VehicleType = 'ambulance' | 'police_car' | 'fire_truck';
@@ -13,6 +13,7 @@ export interface JwtAccessPayload {
   sub: string;
   role: UserRole;
   org?: string | null;
+  org_type?: OrgType | null;
   iat?: number;
   exp?: number;
 }
@@ -29,7 +30,9 @@ export interface VehicleModel {
   organization_type: string;
   vehicle_type: VehicleType;
   license_plate: string;
+  driver_user_id?: string | null;
   status: VehicleStatus;
+  current_incident_id?: string | null;  // spec: "Incident Service ID" — active incident this vehicle is responding to
   latitude: number | null;
   longitude: number | null;
   last_updated?: string;
@@ -45,7 +48,10 @@ export type VehicleEventRoutingKey =
   | 'vehicle.location.updated'
   | 'vehicle.status.changed';
 
-export type EventRoutingKey = IncidentEventRoutingKey | VehicleEventRoutingKey;
+export type HospitalEventRoutingKey =
+  | 'hospital.capacity_updated';
+
+export type EventRoutingKey = IncidentEventRoutingKey | VehicleEventRoutingKey | HospitalEventRoutingKey;
 
 export interface IncidentCreatedPayload {
   incident_id: string;
@@ -92,7 +98,16 @@ export interface VehicleStatusChangedPayload {
   organization_id: string;
   old_status?: VehicleStatus;
   new_status: VehicleStatus;
+  current_incident_id?: string | null;
   changed_at: string;
+}
+
+export interface HospitalCapacityUpdatedPayload {
+  hospital_id: string;
+  hospital_name: string;
+  beds_available: number;
+  beds_total: number;
+  updated_at: string;
 }
 
 export interface EventEnvelope<TPayload> {

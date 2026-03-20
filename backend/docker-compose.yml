@@ -1,7 +1,7 @@
-# NERDCO — Docker Compose for deployment/demo server
-# Usage: docker compose up --build
+# NERDCO — Docker Compose
+# Build context is the backend/ folder (where this file lives).
+# Usage: docker compose up --build   (run from backend/ directory)
 #
-# Expects .env files to be populated in each service folder.
 # Databases and RabbitMQ are cloud-hosted (Neon + CloudAMQP) — not in this file.
 #
 # Services:
@@ -16,14 +16,14 @@ services:
 
   auth-service:
     build:
-      context: ./backend
+      context: ./
       dockerfile: auth-service/Dockerfile
     container_name: nerdco-auth
     restart: unless-stopped
     ports:
       - "3001:3001"
     env_file:
-      - ./backend/auth-service/.env
+      - ./auth-service/.env
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 30s
@@ -32,18 +32,21 @@ services:
 
   incident-service:
     build:
-      context: ./backend
+      context: ./
       dockerfile: incident-service/Dockerfile
     container_name: nerdco-incident
     restart: unless-stopped
     ports:
       - "3002:3002"
     env_file:
-      - ./backend/incident-service/.env
+      - ./incident-service/.env
     environment:
       - TRACKING_SERVICE_URL=http://tracking-service:3003
+      - AUTH_SERVICE_URL=http://auth-service:3001
     depends_on:
       auth-service:
+        condition: service_healthy
+      tracking-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3002/health"]
@@ -53,14 +56,14 @@ services:
 
   tracking-service:
     build:
-      context: ./backend
+      context: ./
       dockerfile: tracking-service/Dockerfile
     container_name: nerdco-tracking
     restart: unless-stopped
     ports:
       - "3003:3003"
     env_file:
-      - ./backend/tracking-service/.env
+      - ./tracking-service/.env
     depends_on:
       auth-service:
         condition: service_healthy
@@ -72,14 +75,14 @@ services:
 
   analytics-service:
     build:
-      context: ./backend
+      context: ./
       dockerfile: analytics-service/Dockerfile
     container_name: nerdco-analytics
     restart: unless-stopped
     ports:
       - "3004:3004"
     env_file:
-      - ./backend/analytics-service/.env
+      - ./analytics-service/.env
     depends_on:
       auth-service:
         condition: service_healthy

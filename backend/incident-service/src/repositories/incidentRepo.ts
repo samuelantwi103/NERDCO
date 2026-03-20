@@ -2,21 +2,22 @@
 const pool = require('../db/pool');
 const { v4: uuidv4 } = require('uuid');
 
-async function create({ id, citizenName, incidentType, latitude, longitude, notes, createdBy }) {
+async function create({ id, citizenName, incidentType, severity = 'high', latitude, longitude, notes, createdBy }) {
   await pool.query(
-    `INSERT INTO incidents (id, citizen_name, incident_type, latitude, longitude, notes, created_by, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'created')`,
-    [id, citizenName, incidentType, latitude, longitude, notes || null, createdBy]
+    `INSERT INTO incidents (id, citizen_name, incident_type, severity, latitude, longitude, notes, created_by, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'created')`,
+    [id, citizenName, incidentType, severity, latitude, longitude, notes || null, createdBy]
   );
 }
 
-async function assignUnit({ id, unitId, unitType }) {
+async function assignUnit({ id, unitId, unitType, destinationHospitalId = null, destinationHospitalName = null }) {
   await pool.query(
     `UPDATE incidents
      SET status = 'dispatched', assigned_unit_id = $1, assigned_unit_type = $2,
+         destination_hospital_id = $3, destination_hospital_name = $4,
          dispatched_at = NOW(), updated_at = NOW()
-     WHERE id = $3`,
-    [unitId, unitType, id]
+     WHERE id = $5`,
+    [unitId, unitType, destinationHospitalId, destinationHospitalName, id]
   );
 }
 
@@ -35,6 +36,23 @@ async function findById(id) {
 async function findOpen() {
   const { rows } = await pool.query(
     `SELECT * FROM incidents WHERE status != 'resolved' ORDER BY created_at DESC`
+  );
+  return rows;
+}
+
+// Returns open incidents of the same type within a rough bounding box.
+// The caller applies haversine filtering for the exact radius.
+// Box side ≈ 0.004° ≈ 450m — wide enough to catch 200m radius without extra API calls.
+async function findNearbyOpen(incidentType: string, lat: number, lng: number) {
+  const delta = 0.004; // ~450m bounding box half-side
+  const { rows } = await pool.query(
+    `SELECT * FROM incidents
+     WHERE incident_type = $1
+       AND status != 'resolved'
+       AND latitude  BETWEEN $2 AND $3
+       AND longitude BETWEEN $4 AND $5
+     ORDER BY created_at DESC`,
+    [incidentType, lat - delta, lat + delta, lng - delta, lng + delta]
   );
   return rows;
 }
@@ -64,4 +82,4 @@ async function getStatusLog(incidentId) {
   return rows;
 }
 
-module.exports = { create, assignUnit, updateStatus, findById, findOpen, findUnassigned, logStatusChange, getStatusLog };
+module.exports = { create, assignUnit, updateStatus, findById, findOpen, findNearbyOpen, findUnassigned, logStatusChange, getStatusLog };

@@ -1,12 +1,15 @@
 // Orchestrates: validate input → call repo → issue tokens → return response
 import type { JwtAccessPayload } from '@nerdco/domain-types';
 
-const bcrypt = require('bcryptjs');
-const userRepo  = require('../repositories/userRepo');
-const tokenRepo = require('../repositories/tokenRepo');
+const bcrypt          = require('bcryptjs');
+const crypto          = require('crypto');
+const userRepo        = require('../repositories/userRepo');
+const tokenRepo       = require('../repositories/tokenRepo');
+const resetTokenRepo  = require('../repositories/resetTokenRepo');
 const { signAccess, signRefresh, verify, hash } = require('../utils/tokens');
+const { sendPasswordResetEmail } = require('../utils/emailService');
 
-const VALID_ROLES = ['system_admin', 'hospital_admin', 'police_admin', 'fire_admin', 'ambulance_driver'];
+const VALID_ROLES = ['system_admin', 'org_admin', 'first_responder'];
 const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function register(req, res) {
@@ -45,13 +48,13 @@ async function login(req, res) {
       return res.status(401).json({ error: 'invalid_credentials', message: 'Invalid email or password' });
     }
 
-    const payload: JwtAccessPayload = { sub: user.id, role: user.role, org: user.organization_id };
+    const payload: JwtAccessPayload = { sub: user.id, role: user.role, org: user.organization_id, org_type: user.org_type || null };
     const access_token  = signAccess(payload);
     const refresh_token = signRefresh({ sub: user.id });
 
     await tokenRepo.save(user.id, hash(refresh_token), new Date(Date.now() + REFRESH_TTL_MS));
 
-    res.json({
+    res.status(200).json({
       access_token,
       refresh_token,
       user: { id: user.id, name: user.name, email: user.email, role: user.role, organization_id: user.organization_id },
@@ -72,8 +75,8 @@ async function refreshToken(req, res) {
     const record = await tokenRepo.findValid(hash(refresh_token));
     if (!record) return res.status(401).json({ error: 'invalid_token', message: 'Refresh token is invalid or expired' });
 
-    const access_token = signAccess({ sub: record.user_id, role: record.role, org: record.organization_id });
-    res.json({ access_token });
+    const access_token = signAccess({ sub: record.user_id, role: record.role, org: record.organization_id, org_type: record.org_type || null });
+    res.status(200).json({ access_token });
   } catch {
     res.status(401).json({ error: 'invalid_token', message: 'Refresh token is invalid or expired' });
   }
@@ -84,7 +87,7 @@ async function logout(req, res) {
   if (!refresh_token) return res.status(400).json({ error: 'validation', message: 'refresh_token is required' });
   try {
     await tokenRepo.revoke(hash(refresh_token), req.user.sub);
-    res.json({ message: 'Logged out successfully' });
+    res.status(200).json({ message: 'Logged out successfully' });
   } catch (err) {
     res.status(500).json({ error: 'server_error', message: 'Internal server error' });
   }
@@ -94,12 +97,60 @@ async function getProfile(req, res) {
   try {
     const row = await userRepo.findById(req.user.sub);
     if (!row) return res.status(404).json({ error: 'not_found', message: 'User not found' });
-    res.json({
+    res.status(200).json({
       id: row.id, name: row.name, email: row.email, role: row.role,
       is_active: row.is_active, created_at: row.created_at,
       organization: row.org_id ? { id: row.org_id, name: row.org_name, type: row.org_type } : null,
     });
   } catch (err) {
+    res.status(500).json({ error: 'server_error', message: 'Internal server error' });
+  }
+}
+
+// Sends a password reset link to the user's email.
+// Always returns 200 regardless of whether the email exists — prevents account enumeration.
+async function forgotPassword(req, res) {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'validation', message: 'email is required' });
+
+  try {
+    const user = await userRepo.findByEmail(email);
+    if (user && user.is_active) {
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      await resetTokenRepo.save(user.id, hash(rawToken));
+      await sendPasswordResetEmail(user.email, user.name, rawToken);
+    }
+    // Always respond the same way — don't reveal whether the email exists
+    res.status(200).json({ message: 'If that email is registered, a reset link has been sent.' });
+  } catch (err: any) {
+    console.error('[forgotPassword]', err?.message);
+    res.status(500).json({ error: 'server_error', message: 'Internal server error' });
+  }
+}
+
+// Validates the reset token and sets a new password.
+async function resetPassword(req, res) {
+  const { token, new_password } = req.body;
+  if (!token || !new_password) {
+    return res.status(400).json({ error: 'validation', message: 'token and new_password are required' });
+  }
+  if (new_password.length < 8) {
+    return res.status(400).json({ error: 'validation', message: 'new_password must be at least 8 characters' });
+  }
+
+  try {
+    const record = await resetTokenRepo.findValid(hash(token));
+    if (!record) {
+      return res.status(400).json({ error: 'invalid_token', message: 'Reset token is invalid or expired' });
+    }
+
+    const passwordHash = await bcrypt.hash(new_password, 12);
+    await userRepo.updatePassword(record.user_id, passwordHash);
+    await resetTokenRepo.markUsed(hash(token));
+
+    res.status(200).json({ message: 'Password updated successfully. You can now log in.' });
+  } catch (err: any) {
+    console.error('[resetPassword]', err?.message);
     res.status(500).json({ error: 'server_error', message: 'Internal server error' });
   }
 }
@@ -110,10 +161,10 @@ function verifyInternal(req, res) {
   if (!header?.startsWith('Bearer ')) return res.status(401).json({ valid: false });
   try {
     const decoded = verify(header.slice(7));
-    res.json({ valid: true, user: decoded });
+    res.status(200).json({ valid: true, user: decoded });
   } catch {
     res.status(401).json({ valid: false });
   }
 }
 
-module.exports = { register, login, refreshToken, logout, getProfile, verifyInternal };
+module.exports = { register, login, refreshToken, logout, getProfile, forgotPassword, resetPassword, verifyInternal };

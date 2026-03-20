@@ -65,6 +65,9 @@ importers:
       '@nerdco/domain-types':
         specifier: workspace:*
         version: link:../domain-types
+      amqplib:
+        specifier: ^0.10.4
+        version: 0.10.9
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3

@@ -14,7 +14,8 @@
     "seed": "node scripts/seed.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
     "test:ws": "node scripts/test-websocket.mjs",
-    "test:race": "node scripts/test-race-condition.mjs"
+    "test:race": "node scripts/test-race-condition.mjs",
+    "test:regression": "node scripts/test-auth-regression.mjs"
   },
   "devDependencies": {
     "@types/amqplib": "^0.10.8",

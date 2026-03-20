@@ -12,12 +12,13 @@ async function create({ organizationId, organizationType, vehicleType, licensePl
 }
 
 async function findAll(filters: any = {}) {
-  const { type, status, organizationId } = filters;
+  const { type, status, organizationId, driverUserId } = filters;
   const conditions: string[] = [];
   const params: any[] = [];
   if (type)           { params.push(type);           conditions.push(`vehicle_type = $${params.length}`); }
   if (status)         { params.push(status);         conditions.push(`status = $${params.length}`); }
   if (organizationId) { params.push(organizationId); conditions.push(`organization_id = $${params.length}`); }
+  if (driverUserId)   { params.push(driverUserId);   conditions.push(`driver_user_id = $${params.length}`); }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const { rows } = await pool.query(`SELECT * FROM vehicles ${where} ORDER BY created_at DESC`, params);
   return rows;
@@ -36,14 +37,27 @@ async function updateLocation({ id, latitude, longitude }) {
   return rows[0] || null;
 }
 
-// Conditional update — WHERE status = 'available' prevents race conditions on dispatch claims
-async function updateStatus({ id, newStatus }) {
-  const whereClause = newStatus === 'dispatched' ? `WHERE id = $2 AND status = 'available'` : `WHERE id = $2`;
+// Conditional update — WHERE status = 'available' prevents race conditions on dispatch claims.
+// incidentId: set when dispatching (links vehicle to its active incident); null to clear on release.
+async function updateStatus({ id, newStatus, incidentId = null }: { id: string; newStatus: string; incidentId?: string | null }) {
+  const whereClause = newStatus === 'dispatched' ? `WHERE id = $3 AND status = 'available'` : `WHERE id = $3`;
+  // Clear incident link when vehicle becomes available again; set it on dispatch.
+  const incidentValue = newStatus === 'available' ? null : incidentId;
   const { rows } = await pool.query(
-    `UPDATE vehicles SET status = $1, last_updated = NOW() ${whereClause} RETURNING *`,
-    [newStatus, id]
+    `UPDATE vehicles SET status = $1, current_incident_id = $2, last_updated = NOW() ${whereClause} RETURNING *`,
+    [newStatus, incidentValue, id]
   );
-  return rows[0] || null; // null means row exists but status condition failed (race condition)
+  return rows[0] || null; // null means status condition failed (race condition on dispatch)
+}
+
+// Direct incident link update — used when incident resolves and vehicle was already
+// set back to available by a separate status call.
+async function setCurrentIncident(id: string, incidentId: string | null) {
+  const { rows } = await pool.query(
+    `UPDATE vehicles SET current_incident_id = $1, last_updated = NOW() WHERE id = $2 RETURNING *`,
+    [incidentId, id]
+  );
+  return rows[0] || null;
 }
 
 async function saveLocationHistory({ vehicleId, latitude, longitude, recordedAt }) {
@@ -53,4 +67,4 @@ async function saveLocationHistory({ vehicleId, latitude, longitude, recordedAt 
   );
 }
 
-module.exports = { create, findAll, findById, updateLocation, updateStatus, saveLocationHistory };
+module.exports = { create, findAll, findById, updateLocation, updateStatus, setCurrentIncident, saveLocationHistory };

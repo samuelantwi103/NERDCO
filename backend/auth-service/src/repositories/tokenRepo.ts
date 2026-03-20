@@ -11,9 +11,10 @@ async function save(userId, tokenHash, expiresAt) {
 
 async function findValid(tokenHash) {
   const { rows } = await pool.query(
-    `SELECT rt.user_id, u.role, u.organization_id
+    `SELECT rt.user_id, u.role, u.organization_id, o.type AS org_type
      FROM refresh_tokens rt
      JOIN users u ON u.id = rt.user_id
+     LEFT JOIN organizations o ON o.id = u.organization_id
      WHERE rt.token_hash = $1 AND rt.revoked = false AND rt.expires_at > NOW()`,
     [tokenHash]
   );

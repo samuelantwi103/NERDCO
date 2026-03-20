@@ -7,12 +7,13 @@ const QUEUE    = 'analytics.all';
 const DLX      = 'emergency_platform.dlx';
 
 const handlers = {
-  'incident.created':     (p) => repo.upsertIncidentSnapshot(p),
-  'incident.dispatched':  (p) => repo.updateSnapshotDispatched(p.incident_id, p.dispatched_at),
-  'incident.in_progress': (p) => repo.updateSnapshotInProgress(p.incident_id, p.in_progress_at),
-  'incident.resolved':    (p) => repo.updateSnapshotResolved(p.incident_id, p.resolved_at),
-  'vehicle.location.updated': (p) => repo.upsertVehicleSnapshot(p),
-  'vehicle.status.changed':   (p) => repo.upsertVehicleSnapshot(p),
+  'incident.created':          (p) => repo.upsertIncidentSnapshot(p),
+  'incident.dispatched':       (p) => repo.updateSnapshotDispatched(p.incident_id, p.dispatched_at),
+  'incident.in_progress':      (p) => repo.updateSnapshotInProgress(p.incident_id, p.in_progress_at),
+  'incident.resolved':         (p) => repo.updateSnapshotResolved(p.incident_id, p.resolved_at),
+  'vehicle.location.updated':  (p) => repo.upsertVehicleSnapshot(p),
+  'vehicle.status.changed':    (p) => repo.upsertVehicleSnapshot(p),
+  'hospital.capacity_updated': (p) => repo.upsertHospitalCapacity(p),
 };
 
 async function connect() {

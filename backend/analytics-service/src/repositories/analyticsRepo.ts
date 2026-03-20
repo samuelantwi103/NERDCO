@@ -117,6 +117,48 @@ async function updateSnapshotResolved(incidentId, resolvedAt) {
   );
 }
 
+async function upsertHospitalCapacity(data) {
+  await pool.query(
+    `INSERT INTO hospital_capacity_snapshots (id, name, beds_available, beds_total, last_updated)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (id) DO UPDATE SET
+       name           = $2,
+       beds_available = $3,
+       beds_total     = $4,
+       last_updated   = $5`,
+    [data.hospital_id, data.hospital_name, data.beds_available, data.beds_total, data.updated_at]
+  );
+}
+
+async function getBedUtilization() {
+  const { rows } = await pool.query('SELECT * FROM v_bed_utilization');
+  return rows;
+}
+
+// Returns vehicles ranked by number of times dispatched, grouped by vehicle type / emergency service.
+// Satisfies spec requirement: "Most deployed responders per emergency service."
+async function getMostDeployed(filters: any = {}) {
+  const { vehicleType, from, to, limit = 20 } = filters;
+  const conditions = ['assigned_unit_id IS NOT NULL'];
+  const params: any[] = [];
+  if (vehicleType) { params.push(vehicleType); conditions.push(`assigned_unit_type = $${params.length}`); }
+  if (from)        { params.push(from);        conditions.push(`created_at >= $${params.length}`); }
+  if (to)          { params.push(to);           conditions.push(`created_at <= $${params.length}`); }
+  params.push(+limit);
+  const where = `WHERE ${conditions.join(' AND ')}`;
+  const { rows } = await pool.query(
+    `SELECT assigned_unit_id AS vehicle_id, assigned_unit_type AS vehicle_type,
+            COUNT(*) AS dispatch_count,
+            AVG(response_time_secs)::int AS avg_response_secs
+     FROM incident_snapshots ${where}
+     GROUP BY assigned_unit_id, assigned_unit_type
+     ORDER BY dispatch_count DESC
+     LIMIT $${params.length}`,
+    params
+  );
+  return rows;
+}
+
 async function upsertVehicleSnapshot(data) {
   await pool.query(
     `INSERT INTO vehicle_snapshots (id, organization_id, vehicle_type, status, latitude, longitude, last_updated)
@@ -127,4 +169,4 @@ async function upsertVehicleSnapshot(data) {
   );
 }
 
-module.exports = { getSummary, getResponseTimes, getIncidentsByRegion, getResourceUtilization, isDuplicate, logEvent, upsertIncidentSnapshot, updateSnapshotDispatched, updateSnapshotInProgress, updateSnapshotResolved, upsertVehicleSnapshot };
+module.exports = { getSummary, getResponseTimes, getIncidentsByRegion, getResourceUtilization, getBedUtilization, getMostDeployed, isDuplicate, logEvent, upsertIncidentSnapshot, updateSnapshotDispatched, updateSnapshotInProgress, updateSnapshotResolved, upsertVehicleSnapshot, upsertHospitalCapacity };

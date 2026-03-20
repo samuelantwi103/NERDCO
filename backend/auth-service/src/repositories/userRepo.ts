@@ -4,7 +4,10 @@ const { v4: uuidv4 } = require('uuid');
 
 async function findByEmail(email) {
   const { rows } = await pool.query(
-    'SELECT * FROM users WHERE email = $1 AND is_active = true',
+    `SELECT u.*, o.type AS org_type
+     FROM users u
+     LEFT JOIN organizations o ON o.id = u.organization_id
+     WHERE u.email = $1 AND u.is_active = true`,
     [email]
   );
   return rows[0] || null;
@@ -32,4 +35,11 @@ async function create({ name, email, passwordHash, role, organizationId }) {
   return rows[0];
 }
 
-module.exports = { findByEmail, findById, create };
+async function updatePassword(userId: string, passwordHash: string) {
+  await pool.query(
+    'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2',
+    [passwordHash, userId]
+  );
+}
+
+module.exports = { findByEmail, findById, create, updatePassword };
