@@ -9,5 +9,6 @@ router.get('/:id',                    verifyJwt, ctrl.getOne);
 router.put('/:id/status',             verifyJwt, requireRole('system_admin', 'org_admin', 'first_responder'), ctrl.updateStatus);
 router.put('/:id/assign',             verifyJwt, requireRole('system_admin', 'org_admin'), ctrl.reassign);
 router.post('/:id/request-support',   verifyJwt, ctrl.requestSupport);
+router.get('/:id/related',            verifyJwt, ctrl.getRelated);
 
 module.exports = router;

@@ -47,6 +47,7 @@ asynchronous event broadcasting.
 ```
 Course_Project/
 ├── README.md                        ← You are here
+├── DEPLOYMENT.md                    ← Deployment & Local Dev Guide
 ├── CPEN 421 FINAL COURSE PROJECT.pdf ← Original specification
 └── design/                          ← Phase 1: All design documents
     ├── architecture/
@@ -79,10 +80,10 @@ Course_Project/
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| **Phase 1** — System Design | ✅ In Progress | Architecture, DB schemas, API specs, MQ events |
-| **Phase 2** — Backend | Pending | Implement all 4 microservices |
-| **Phase 3** — Client UI | Pending | Web interface: login, incidents, map tracking, analytics |
-| **Phase 4** — Docs & Demo | Pending | Swagger docs, deployment guide, 5-min video |
+| **Phase 1** — System Design | ✅ COMPLETE | Architecture, DB schemas, API specs, MQ events |
+| **Phase 2** — Backend | ✅ COMPLETE | Implement all 4 microservices |
+| **Phase 3** — Client UI | ✅ COMPLETE | Web interface: login, incidents, map tracking, analytics |
+| **Phase 4** — Docs & Demo | ✅ COMPLETE | Swagger docs, deployment guide, Postman |
 
 ---
 
@@ -98,3 +99,6 @@ Course_Project/
 5. Open `design/api/*.yaml` files in [Swagger Editor](https://editor.swagger.io/) to explore
    the full API contracts.
 6. Review `design/message-queue/` for the event-driven communication design.
+
+
+$backendPath = Get-Location; @('auth-service', 'incident-service', 'tracking-service', 'analytics-service') | ForEach-Object { Start-Job -Name $_ -ScriptBlock { param($svc, $path) Set-Location "$path\$svc"; pnpm dev } -ArgumentList $_, $backendPath }; Get-Job

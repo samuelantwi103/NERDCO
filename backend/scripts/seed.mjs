@@ -78,18 +78,25 @@ const USER = {
 async function seedAuth(db) {
   console.log('\n[auth_db] Seeding organisations...');
   await db.query(`
-    INSERT INTO organizations (id, name, type, latitude, longitude, address, beds_available, beds_total)
+    INSERT INTO organizations (id, name, type, latitude, longitude, address, beds_available, beds_total, capabilities)
     VALUES
-      ($1,  'National Ambulance Service HQ', 'ambulance_service', 5.5717, -0.1969, 'Liberation Rd, Accra',           0,  0),
-      ($2,  'Korle Bu Teaching Hospital',    'hospital',          5.5370, -0.2284, 'Guggisberg Ave, Accra',          45, 50),
-      ($3,  '37 Military Hospital',          'hospital',          5.5842, -0.1907, 'Liberation Rd, Accra',           30, 35),
-      ($4,  'Kaneshie Police Station',       'police_station',    5.5490, -0.2290, 'Kaneshie, Accra',                 0,  0),
-      ($5,  'Madina Police Station',         'police_station',    5.6680,  0.0030, 'Madina, Accra',                   0,  0),
-      ($6,  'Circle Fire Station',           'fire_station',      5.5570, -0.2063, 'Kwame Nkrumah Circle, Accra',     0,  0),
-      ($7,  'Accra Fire Station',            'fire_station',      5.5532, -0.2063, 'Castle Rd, Accra',                0,  0)
+      ($1,  'National Ambulance Service HQ', 'ambulance_service', 5.5717, -0.1969, 'Liberation Rd, Accra',           0,  0, '{}'),
+      ($2,  'Korle Bu Teaching Hospital',    'hospital',          5.5370, -0.2284, 'Guggisberg Ave, Accra',          45, 50, '{"Trauma","Burn Center","Pediatrics"}'),
+      ($3,  '37 Military Hospital',          'hospital',          5.5842, -0.1907, 'Liberation Rd, Accra',           30, 35, '{"Trauma","Surgery","Orthopedics"}'),
+      ($4,  'Kaneshie Police Station',       'police_station',    5.5490, -0.2290, 'Kaneshie, Accra',                 0,  0, '{}'),
+      ($5,  'Madina Police Station',         'police_station',    5.6680,  0.0030, 'Madina, Accra',                   0,  0, '{}'),
+      ($6,  'Circle Fire Station',           'fire_station',      5.5570, -0.2063, 'Kwame Nkrumah Circle, Accra',     0,  0, '{}'),
+      ($7,  'Accra Fire Station',            'fire_station',      5.5532, -0.2063, 'Castle Rd, Accra',                0,  0, '{}')
     ON CONFLICT (id) DO NOTHING
   `, [ORG.nas, ORG.korlebu, ORG.military, ORG.kaneshie_police, ORG.madina_police, ORG.circle_fire, ORG.accra_fire]);
   console.log('  ✓ 7 organisations');
+
+  // Remove any users that would conflict on email (handles re-seeding after schema changes)
+  await db.query(`DELETE FROM users WHERE email = ANY($1)`, [[
+    'kwame@nerdco.gov.gh', 'efua@nerdco.gov.gh', 'ama@nerdco.gov.gh', 'akosua@nerdco.gov.gh',
+    'military@nerdco.gov.gh', 'kaneshie@nerdco.gov.gh', 'madina@nerdco.gov.gh',
+    'circle@nerdco.gov.gh', 'accrafire@nerdco.gov.gh', 'driver1@nerdco.gov.gh',
+  ]]);
 
   const PW = await bcrypt.hash('password', 12);
   console.log('[auth_db] Seeding users...');
@@ -98,21 +105,24 @@ async function seedAuth(db) {
     VALUES
       ($1,  'Kwame — Ops Centre',           'kwame@nerdco.gov.gh',          $11, 'system_admin',    NULL),
       ($2,  'Efua — Call Centre',           'efua@nerdco.gov.gh',           $11, 'system_admin',    NULL),
-      ($3,  'Ama — NAS Fleet Admin',        'ama@nerdco.gov.gh',            $11, 'org_admin',       $21),
-      ($4,  'Akosua — Korle Bu Admin',      'akosua@nerdco.gov.gh',         $11, 'org_admin',       $22),
-      ($5,  '37 Military Admin',            'military@nerdco.gov.gh',       $11, 'org_admin',       $23),
-      ($6,  'Kaneshie Police Admin',        'kaneshie@nerdco.gov.gh',       $11, 'org_admin',       $24),
-      ($7,  'Madina Police Admin',          'madina@nerdco.gov.gh',         $11, 'org_admin',       $25),
-      ($8,  'Circle Fire Admin',            'circle@nerdco.gov.gh',         $11, 'org_admin',       $26),
-      ($9,  'Accra Fire Admin',             'accrafire@nerdco.gov.gh',      $11, 'org_admin',       $27),
-      ($10, 'Ambulance Driver 1',           'driver1@nerdco.gov.gh',        $11, 'first_responder', $21)
-    ON CONFLICT (id) DO NOTHING
+      ($3,  'Ama — NAS Fleet Admin',        'ama@nerdco.gov.gh',            $11, 'org_admin',       $12),
+      ($4,  'Akosua — Korle Bu Admin',      'akosua@nerdco.gov.gh',         $11, 'org_admin',       $13),
+      ($5,  '37 Military Admin',            'military@nerdco.gov.gh',       $11, 'org_admin',       $14),
+      ($6,  'Kaneshie Police Admin',        'kaneshie@nerdco.gov.gh',       $11, 'org_admin',       $15),
+      ($7,  'Madina Police Admin',          'madina@nerdco.gov.gh',         $11, 'org_admin',       $16),
+      ($8,  'Circle Fire Admin',            'circle@nerdco.gov.gh',         $11, 'org_admin',       $17),
+      ($9,  'Accra Fire Admin',             'accrafire@nerdco.gov.gh',      $11, 'org_admin',       $18),
+      ($10, 'Ambulance Driver 1',           'driver1@nerdco.gov.gh',        $11, 'first_responder', $12)
+    ON CONFLICT (id) DO UPDATE SET
+      name = EXCLUDED.name, email = EXCLUDED.email,
+      password_hash = EXCLUDED.password_hash, role = EXCLUDED.role,
+      organization_id = EXCLUDED.organization_id
   `, [
     USER.kwame, USER.efua, USER.ama, USER.akosua, USER.military_admin,
     USER.kaneshie_police, USER.madina_police, USER.circle_fire, USER.accra_fire, USER.driver,
     PW,
     ORG.nas, ORG.korlebu, ORG.military, ORG.kaneshie_police,
-    ORG.madina_police, ORG.circle_fire, ORG.accra_fire, ORG.nas,
+    ORG.madina_police, ORG.circle_fire, ORG.accra_fire,
   ]);
   console.log('  ✓ 10 users (all passwords: "password")');
 }

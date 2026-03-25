@@ -45,7 +45,7 @@ async function main() {
   // ── Step 2: Login ────────────────────────────────────────────────────────
   console.log('\n── Step 2: Login as system_admin');
   const { status: loginStatus, data: loginData } = await json('POST', `${AUTH}/auth/login`, {
-    email: 'admin@nerdco.gov.gh',
+    email: 'kwame@nerdco.gov.gh',
     password: 'password',
   });
   ok('POST /auth/login → 200', loginStatus === 200, `got ${loginStatus}`);
@@ -112,6 +112,75 @@ async function main() {
   ok('GET /analytics/summary → 200', aStatus === 200);
   ok('incidents_today ≥ 1', (aData?.incidents_today || 0) >= 1, `got ${aData?.incidents_today}`);
   console.log(`     Analytics: incidents_today=${aData?.incidents_today}, open=${aData?.open_incidents}, avg_response_secs=${aData?.avg_response_time_secs_today}, vehicles_available=${aData?.vehicles_available}`);
+
+  // ── Step 10: Duplicate incident detection (409) ─────────────────────────
+  console.log('\n── Step 10: Duplicate incident detection — same type within 200m');
+  const { status: dupStatus, data: dupData } = await json('POST', `${INCIDENT}/incidents`, {
+    citizen_name:  'Ama Serwaa',
+    incident_type: 'medical',
+    latitude:       5.5485, // ~11m from Step 5 incident (same block)
+    longitude:     -0.2171,
+    notes:         'E2E test — duplicate detection check',
+  }, token);
+  ok('POST /incidents within 200m → 409', dupStatus === 409, `got ${dupStatus}`);
+  ok('error = duplicate_incident', dupData?.error === 'duplicate_incident');
+  ok('existing_incident returned', !!dupData?.existing_incident?.id);
+
+  // ── Step 11: Request support + parent_incident_id linking ─────────────
+  console.log('\n── Step 11: Request support creates linked child incident');
+  // Create a fresh incident for the support test
+  const { data: suppParent } = await json('POST', `${INCIDENT}/incidents`, {
+    citizen_name:  'Kofi Boateng',
+    incident_type: 'fire',
+    latitude:       5.5610,
+    longitude:     -0.2050,
+    notes:         'Support linkage test — fire at Nkrumah Circle',
+  }, token);
+  const parentId = suppParent?.incident?.id;
+  if (parentId) {
+    const { status: suppStatus, data: suppData } = await json('POST', `${INCIDENT}/incidents/${parentId}/request-support`, {
+      support_type: 'ambulance',
+    }, token);
+    ok('POST /incidents/:id/request-support → 201', suppStatus === 201, `got ${suppStatus}`);
+    ok('support_incident.id present', !!suppData?.support_incident?.id);
+    ok('support_incident.parent_incident_id = parentId', suppData?.support_incident?.parent_incident_id === parentId);
+
+    // ── Step 12: GET /incidents/:id/related ─────────────────────────────
+    console.log('\n── Step 12: GET /incidents/:id/related returns child incidents');
+    const { status: relStatus, data: relData } = await json('GET', `${INCIDENT}/incidents/${parentId}/related`, null, token);
+    ok('GET /incidents/:id/related → 200', relStatus === 200, `got ${relStatus}`);
+    ok('related incidents array returned', Array.isArray(relData?.incidents));
+    ok('child incident in related list', relData?.incidents?.some(i => i.parent_incident_id === parentId));
+  } else {
+    ok('support parent incident created', false, 'skipping support tests — parent not created');
+  }
+
+  // ── Step 13: User creation (POST /auth/users) ─────────────────────────
+  console.log('\n── Step 13: Admin creates a staff account');
+  const testEmail = `testdriver_${Date.now()}@nerdco.gov.gh`;
+  const { status: uStatus, data: uData } = await json('POST', `${AUTH}/auth/users`, {
+    name:            'Test Driver',
+    email:           testEmail,
+    role:            'first_responder',
+    organization_id: null, // system_admin creating without org restriction
+  }, token);
+  ok('POST /auth/users → 201', uStatus === 201, `got ${uStatus}: ${JSON.stringify(uData)?.slice(0,100)}`);
+  ok('user.id present', !!uData?.user?.id);
+  ok('user.email matches', uData?.user?.email === testEmail);
+
+  // ── Step 14: List users ───────────────────────────────────────────────
+  console.log('\n── Step 14: List users (system_admin sees all)');
+  const { status: luStatus, data: luData } = await json('GET', `${AUTH}/auth/users`, null, token);
+  ok('GET /auth/users → 200', luStatus === 200, `got ${luStatus}`);
+  ok('users array returned', Array.isArray(luData?.users));
+  ok('user list non-empty', (luData?.users?.length || 0) >= 1);
+
+  // ── Step 15: Swagger endpoints reachable ──────────────────────────────
+  console.log('\n── Step 15: Swagger UI reachable on all services');
+  for (const [name, base] of [['auth', AUTH], ['incident', INCIDENT], ['tracking', TRACKING], ['analytics', ANALYTICS]]) {
+    const { status } = await json('GET', `${base}/docs/spec.yaml`);
+    ok(`${name}-service /docs/spec.yaml → 200`, status === 200, `got ${status}`);
+  }
 
   // ── Summary ───────────────────────────────────────────────────────────────
   console.log(`\n${'─'.repeat(50)}`);

@@ -18,7 +18,9 @@ const handlers = {
 
 async function connect() {
   const conn = await amqplib.connect(process.env.RABBITMQ_URL);
+  conn.on('error', (err) => console.error('[analytics-service] RabbitMQ connection error:', err));
   const ch   = await conn.createChannel();
+  ch.on('error', (err) => console.error('[analytics-service] RabbitMQ channel error:', err));
 
   await ch.assertExchange(DLX, 'topic', { durable: true });
   await ch.assertExchange(EXCHANGE, 'topic', { durable: true });
@@ -29,7 +31,7 @@ async function connect() {
   ch.consume(QUEUE, async (msg) => {
     if (!msg) return;
     let envelope;
-    try { envelope = JSON.parse(msg.content.toString()); } catch { return ch.ack(msg); }
+    try { envelope = JSON.parse(msg.content.toString()); } catch { return ch.nack(msg, false, false); } // corrupt payload → DLX
 
     const { event_id, event, payload } = envelope;
 

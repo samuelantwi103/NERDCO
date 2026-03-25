@@ -82,7 +82,8 @@ async function selectDestinationHospital(
 }
 
 async function create(req, res) {
-  const { citizen_name, incident_type, severity = 'high', latitude, longitude, notes } = req.body;
+  try {
+  const { citizen_name, incident_type, severity = 'high', latitude, longitude, notes, unit_count = 1, mci_units } = req.body;
 
   if (!citizen_name || !incident_type || latitude == null || longitude == null) {
     return res.status(400).json({ error: 'validation', message: 'citizen_name, incident_type, latitude and longitude are required' });
@@ -151,6 +152,63 @@ async function create(req, res) {
 
   publish('incident.dispatched', { incident_id: id, incident_type, latitude, longitude, assigned_unit_id: assigned.id, assigned_unit_type: vehicle_type, distance_km: +assigned.distance_km.toFixed(2), dispatched_at: new Date().toISOString() });
 
+  // Handle MCI batch dispatch
+  // mci_units: { ambulance?: number, fire_truck?: number, police_car?: number }
+  // Falls back to unit_count of the primary vehicle type for backward compat.
+  const childIncidents: { id: string, unitId: string, unitType: string }[] = [];
+
+  // Build per-type dispatch specs from mci_units or legacy unit_count
+  const VEHICLE_TYPES: Record<string, string> = { ambulance: 'ambulance', fire_truck: 'fire_truck', police_car: 'police_car' };
+  const dispatchSpecs: { vehicleType: string; count: number }[] = [];
+
+  if (mci_units && typeof mci_units === 'object') {
+    for (const [vType, cnt] of Object.entries(mci_units)) {
+      const safeCount = Math.min(Math.max(0, Number(cnt) || 0), 10);
+      if (VEHICLE_TYPES[vType] && safeCount > 0) {
+        // Primary type already dispatched — count remaining extras
+        const extras = vType === vehicle_type ? safeCount - 1 : safeCount;
+        if (extras > 0) dispatchSpecs.push({ vehicleType: vType, count: extras });
+      }
+    }
+  } else if (unit_count > 1) {
+    dispatchSpecs.push({ vehicleType: vehicle_type, count: Math.min(unit_count - 1, 9) });
+  }
+
+  // Pre-fetch ranked lists for each needed vehicle type (skip if same as primary — already fetched)
+  const rankedByType: Record<string, typeof ranked> = { [vehicle_type]: ranked };
+  for (const spec of dispatchSpecs) {
+    if (!rankedByType[spec.vehicleType]) {
+      rankedByType[spec.vehicleType] = await rankAvailableVehicles(spec.vehicleType, latitude, longitude, authHeader).catch(() => []);
+    }
+  }
+
+  for (const { vehicleType, count } of dispatchSpecs) {
+    const pool = rankedByType[vehicleType] ?? [];
+    for (let i = 0; i < count; i++) {
+      try {
+        const childId = uuidv4();
+        await incidentRepo.create({
+          id: childId, citizenName: citizen_name, incidentType: incident_type, severity,
+          latitude, longitude, notes: `MCI batch dispatch for incident ${id}`,
+          createdBy: req.user.sub, parentIncidentId: id,
+        });
+        // Filter out already-assigned vehicles across all child incidents
+        const assignedIds = new Set([assigned.id, ...childIncidents.map(c => c.unitId)]);
+        const remaining = pool.filter((v: any) => !assignedIds.has(v.id));
+        const supportUnit = await claimNearestVehicle(remaining, authHeader, childId);
+        if (supportUnit) {
+          await incidentRepo.assignUnit({ id: childId, unitId: supportUnit.id, unitType: vehicleType, destinationHospitalId: destHospital?.id || null, destinationHospitalName: destHospital?.name || null });
+          await incidentRepo.logStatusChange({ incidentId: childId, oldStatus: 'created', newStatus: 'dispatched', changedBy: req.user.sub, notes: `MCI batch auto-dispatch (${vehicleType})` });
+          publish('incident.dispatched', { incident_id: childId, incident_type, latitude, longitude, assigned_unit_id: supportUnit.id, assigned_unit_type: vehicleType, distance_km: +supportUnit.distance_km.toFixed(2), dispatched_at: new Date().toISOString() });
+          childIncidents.push({ id: childId, unitId: supportUnit.id, unitType: vehicleType });
+        }
+      } catch (mciErr: any) {
+        console.error(`[create] MCI child dispatch error (${vehicleType}):`, mciErr?.message);
+        // Non-fatal: continue dispatching remaining units
+      }
+    }
+  }
+
   const incident = await incidentRepo.findById(id);
   res.status(201).json({
     incident,
@@ -162,16 +220,22 @@ async function create(req, res) {
         beds_available: destHospital.beds_available,
       },
     }),
+    mci_units_dispatched: childIncidents.length > 0 ? childIncidents : undefined,
     alternative_responders: ranked
-      .filter(v => v.id !== assigned.id)
+      .filter((v: any) => v.id !== assigned.id)
       .slice(0, 5)
-      .map(v => ({ vehicle_id: v.id, vehicle_type: v.vehicle_type, license_plate: v.license_plate, distance_km: +v.distance_km.toFixed(2), latitude: v.latitude, longitude: v.longitude })),
+      .map((v: any) => ({ vehicle_id: v.id, vehicle_type: v.vehicle_type, license_plate: v.license_plate, distance_km: +v.distance_km.toFixed(2), latitude: v.latitude, longitude: v.longitude })),
   });
+  } catch (err: any) {
+    console.error('[create] unhandled error:', err?.message, err?.stack?.split('\n')[1]);
+    res.status(500).json({ error: 'server_error', message: err?.message || 'Internal server error' });
+  }
 }
 
 async function listOpen(req, res) {
   try {
-    const incidents = await incidentRepo.findOpen();
+    const { limit, offset } = req.query;
+    const incidents = await incidentRepo.findOpen({ limit: Number(limit) || 100, offset: Number(offset) || 0 });
 
     if (req.user.role === 'first_responder') {
       let responderVehicleIds: Set<string>;
@@ -270,6 +334,13 @@ async function updateStatus(req, res) {
       adjustHospitalCapacity(incident.destination_hospital_id, +1).catch(() => {});
     }
 
+    // Release the vehicle back to available when incident resolves
+    if (status === 'resolved' && incident.assigned_unit_id) {
+      releaseVehicle(incident.assigned_unit_id, req.headers.authorization).catch((err: any) => {
+        console.error('[incident-service] Failed to release vehicle:', err?.response?.data || err.message);
+      });
+    }
+
     const eventKey = status === 'in_progress' ? 'incident.in_progress' : `incident.${status}`;
     publish(eventKey, { incident_id: req.params.id, changed_by: req.user.sub, [`${status}_at`]: new Date().toISOString() });
 
@@ -286,6 +357,14 @@ async function reassign(req, res) {
   try {
     const incident = await incidentRepo.findById(req.params.id);
     if (!incident) return res.status(404).json({ error: 'not_found', message: 'Incident not found' });
+
+    // Enforce override window — only system_admin can override after the window closes
+    if (req.user.role !== 'system_admin' && incident.dispatched_at) {
+      const ageMs = Date.now() - new Date(incident.dispatched_at).getTime();
+      if (ageMs > OVERRIDE_SECS * 1000) {
+        return res.status(403).json({ error: 'window_expired', message: `Override window of ${OVERRIDE_SECS}s has closed` });
+      }
+    }
 
     const authHeader = req.headers.authorization;
 
@@ -355,21 +434,37 @@ async function requestSupport(req, res) {
       return res.status(503).json({ error: 'no_vehicles', message: `No available ${support_type} units. Support request logged.` });
     }
 
-    const supportUnit = await claimNearestVehicle(ranked, authHeader, req.params.id);
+    // Create a child incident linked to the parent so both sides can track each other
+    const childId = uuidv4();
+    await incidentRepo.create({
+      id:               childId,
+      citizenName:      incident.citizen_name,
+      incidentType:     incident.incident_type,
+      severity:         incident.severity,
+      latitude:         incident.latitude,
+      longitude:        incident.longitude,
+      notes:            `Support dispatch for incident ${req.params.id}`,
+      createdBy:        req.user.sub,
+      parentIncidentId: req.params.id,
+    });
+
+    const supportUnit = await claimNearestVehicle(ranked, authHeader, childId);
     if (!supportUnit) {
       return res.status(503).json({ error: 'no_vehicles', message: 'All matched support units became unavailable. Try again.' });
     }
 
+    await incidentRepo.assignUnit({ id: childId, unitId: supportUnit.id, unitType: support_type });
     await incidentRepo.logStatusChange({
-      incidentId: req.params.id,
-      oldStatus: incident.status,
-      newStatus: incident.status,
+      incidentId: childId,
+      oldStatus: 'created',
+      newStatus: 'dispatched',
       changedBy: req.user.sub,
-      notes: withAudit(req, `support requested: ${support_type}, dispatched unit ${supportUnit.id} (${supportUnit.license_plate}), distance ${supportUnit.distance_km.toFixed(2)} km`),
+      notes: withAudit(req, `support for parent incident ${req.params.id}`),
     });
 
     publish('incident.dispatched', {
-      incident_id: req.params.id,
+      incident_id: childId,
+      parent_incident_id: req.params.id,
       assigned_unit_id: supportUnit.id,
       assigned_unit_type: support_type,
       distance_km: +supportUnit.distance_km.toFixed(2),
@@ -377,13 +472,15 @@ async function requestSupport(req, res) {
       support: true,
     });
 
+    const childIncident = await incidentRepo.findById(childId);
     res.status(201).json({
-      message: `Support unit dispatched`,
+      message: 'Support unit dispatched',
+      support_incident: childIncident,
       support_unit: {
-        vehicle_id: supportUnit.id,
-        vehicle_type: supportUnit.vehicle_type,
+        vehicle_id:    supportUnit.id,
+        vehicle_type:  supportUnit.vehicle_type,
         license_plate: supportUnit.license_plate,
-        distance_km: +supportUnit.distance_km.toFixed(2),
+        distance_km:   +supportUnit.distance_km.toFixed(2),
       },
     });
   } catch {
@@ -391,4 +488,14 @@ async function requestSupport(req, res) {
   }
 }
 
-module.exports = { create, listOpen, getOne, updateStatus, reassign, requestSupport };
+// Returns all child incidents linked to this parent (created via request-support)
+async function getRelated(req, res) {
+  try {
+    const incidents = await incidentRepo.findRelated(req.params.id);
+    res.status(200).json({ incidents });
+  } catch {
+    res.status(500).json({ error: 'server_error', message: 'Internal server error' });
+  }
+}
+
+module.exports = { create, listOpen, getOne, updateStatus, reassign, requestSupport, getRelated };

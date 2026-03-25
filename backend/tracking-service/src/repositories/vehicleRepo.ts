@@ -2,11 +2,11 @@
 const pool = require('../db/pool');
 const { v4: uuidv4 } = require('uuid');
 
-async function create({ organizationId, organizationType, vehicleType, licensePlate, driverUserId }) {
+async function create({ organizationId, organizationType, vehicleType, licensePlate, driverUserId, latitude, longitude }: any) {
   const { rows } = await pool.query(
-    `INSERT INTO vehicles (id, organization_id, organization_type, vehicle_type, license_plate, driver_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [uuidv4(), organizationId, organizationType, vehicleType, licensePlate, driverUserId || null]
+    `INSERT INTO vehicles (id, organization_id, organization_type, vehicle_type, license_plate, driver_user_id, latitude, longitude) 
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+    [uuidv4(), organizationId, organizationType, vehicleType, licensePlate, driverUserId || null, latitude || null, longitude || null]
   );
   return rows[0];
 }
@@ -60,11 +60,25 @@ async function setCurrentIncident(id: string, incidentId: string | null) {
   return rows[0] || null;
 }
 
-async function saveLocationHistory({ vehicleId, latitude, longitude, recordedAt }) {
+async function update({ id, organizationId, organizationType, vehicleType, licensePlate, driverUserId }: any) {
+  const { rows } = await pool.query(
+    `UPDATE vehicles
+     SET organization_id = $1, organization_type = $2, vehicle_type = $3, license_plate = $4, driver_user_id = $5, last_updated = NOW()
+     WHERE id = $6 RETURNING *`,
+    [organizationId, organizationType, vehicleType, licensePlate, driverUserId, id]
+  );
+  return rows[0] || null;
+}
+
+async function remove(id: string) {
+  await pool.query('DELETE FROM vehicles WHERE id = $1', [id]);
+}
+
+async function saveLocationHistory({ vehicleId, latitude, longitude, recordedAt }: any) {
   await pool.query(
-    'INSERT INTO location_history (id, vehicle_id, latitude, longitude, recorded_at) VALUES ($1, $2, $3, $4, $5)',
-    [uuidv4(), vehicleId, latitude, longitude, recordedAt]
+    `INSERT INTO location_history (vehicle_id, latitude, longitude, recorded_at) VALUES ($1, $2, $3, $4)`,
+    [vehicleId, latitude, longitude, recordedAt]
   );
 }
 
-module.exports = { create, findAll, findById, updateLocation, updateStatus, setCurrentIncident, saveLocationHistory };
+module.exports = { create, findAll, findById, updateLocation, updateStatus, setCurrentIncident, update, remove, saveLocationHistory };

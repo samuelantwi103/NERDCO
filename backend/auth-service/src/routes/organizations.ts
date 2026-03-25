@@ -11,4 +11,8 @@ router.get('/hospitals/available',     verifyJwtOrSecret, ctrl.listHospitalsWith
 // Hospital admin sets capacity; incident-service adjusts by delta via service secret
 router.patch('/:id/capacity',          verifyJwtOrSecret, ctrl.updateCapacity);
 
+router.get('/:id',    verifyJwt, ctrl.getById);
+router.put('/:id',    verifyJwt, requireRole('system_admin'), ctrl.update);
+router.delete('/:id', verifyJwt, requireRole('system_admin'), ctrl.remove);
+
 module.exports = router;

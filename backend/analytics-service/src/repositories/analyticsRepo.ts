@@ -89,7 +89,11 @@ async function logEvent(eventId, routingKey, payload, processed) {
 async function upsertIncidentSnapshot(data) {
   await pool.query(
     `INSERT INTO incident_snapshots (id, incident_type, latitude, longitude, status, created_at)
-     VALUES ($1, $2, $3, $4, 'created', $5) ON CONFLICT (id) DO NOTHING`,
+     VALUES ($1, $2, $3, $4, 'created', $5)
+     ON CONFLICT (id) DO UPDATE SET
+       incident_type = EXCLUDED.incident_type,
+       latitude = EXCLUDED.latitude,
+       longitude = EXCLUDED.longitude`,
     [data.incident_id, data.incident_type, data.latitude, data.longitude, data.created_at]
   );
 }

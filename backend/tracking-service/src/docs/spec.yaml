@@ -1,0 +1,420 @@
+openapi: "3.0.3"
+info:
+  title: Dispatch Tracking Service API
+  description: |
+    Maintains real-time GPS positions for emergency vehicles (ambulances, police cars,
+    fire trucks). Exposes REST endpoints for vehicle management and a WebSocket channel
+    for real-time location streaming to admin map views.
+  version: "1.0.0"
+
+servers:
+  - url: http://localhost:3003
+    description: Local development (REST)
+  - url: ws://localhost:3003
+    description: Local development (WebSocket)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Vehicles
+    description: Vehicle registration and location management
+  - name: WebSocket
+    description: Real-time location streaming
+
+paths:
+
+  /vehicles/register:
+    post:
+      tags: [Vehicles]
+      summary: Register a new emergency vehicle
+      description: Adds a vehicle to the system. Requires system_admin or org_admin role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterVehicleRequest"
+      responses:
+        "201":
+          description: Vehicle registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: License plate already registered
+
+  /vehicles:
+    get:
+      tags: [Vehicles]
+      summary: List vehicles with optional filters
+      description: Used by Incident Service to find available responders of a given type.
+      parameters:
+        - name: type
+          in: query
+          description: Filter by vehicle type
+          schema:
+            type: string
+            enum: [ambulance, police_car, fire_truck]
+        - name: status
+          in: query
+          description: Filter by availability status
+          schema:
+            type: string
+            enum: [available, dispatched, unavailable]
+        - name: organization_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: organizationId
+          in: query
+          description: Camel-case alias used by backend filter logic.
+          schema:
+            type: string
+            format: uuid
+        - name: driverUserId
+          in: query
+          description: Internal/responder scoping filter.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: List of vehicles with current locations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vehicles:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Vehicle"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /vehicles/{id}:
+    get:
+      tags: [Vehicles]
+      summary: Get a single vehicle's details
+      parameters:
+        - $ref: "#/components/parameters/VehicleId"
+      responses:
+        "200":
+          description: Vehicle details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vehicle:
+                    $ref: "#/components/schemas/Vehicle"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /vehicles/{id}/location:
+    get:
+      tags: [Vehicles]
+      summary: Get current GPS location of a vehicle
+      parameters:
+        - $ref: "#/components/parameters/VehicleId"
+      responses:
+        "200":
+          description: Current vehicle location
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocationResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags: [Vehicles]
+      summary: Update vehicle GPS location (called by driver device)
+      description: |
+        Called periodically by the ambulance/driver's mobile device to push GPS coordinates.
+        Updates `vehicles.latitude/longitude` and inserts a row in `location_history`.
+        Publishes `vehicle.location.updated` to RabbitMQ.
+        Broadcasts new position to all WebSocket subscribers.
+      parameters:
+        - $ref: "#/components/parameters/VehicleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationUpdateRequest"
+      responses:
+        "200":
+          description: Location updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Only the assigned driver may update this vehicle's location
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /vehicles/{id}/status:
+    put:
+      tags: [Vehicles]
+      summary: Update vehicle availability status
+      description: |
+        Called internally by the Incident Service to mark a vehicle as `dispatched` or `available`.
+        May also be called by admin to manually set a vehicle to `unavailable` (e.g., for maintenance).
+      parameters:
+        - $ref: "#/components/parameters/VehicleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [available, dispatched, unavailable]
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Vehicle status conflict (e.g., no longer available)
+
+  # ── WebSocket (documented for reference — not an OpenAPI HTTP path) ────────
+
+  /ws/vehicles:
+    get:
+      tags: [WebSocket]
+      summary: WebSocket — subscribe to real-time vehicle location stream
+      description: |
+        **Protocol:** WebSocket (upgrade from HTTP)
+
+        **Authentication:** Do NOT pass the JWT as a URL query parameter — tokens in
+        URLs are recorded in server access logs, browser history, and reverse proxies.
+
+        Instead, connect without credentials, then send an auth message as the
+        **first WebSocket message** before sending anything else:
+        ```json
+        { "type": "auth", "token": "<access_token>" }
+        ```
+        The server validates the token and either replies with
+        `{ "type": "auth_ok" }` or closes the connection with code 4001.
+
+        After successful authentication, the server immediately sends the current
+        positions update stream. Whenever any vehicle location is updated, the server
+        pushes a `vehicle.location.updated` message to all connected clients.
+
+        **Server → Client message format:**
+        ```json
+        {
+          "type": "vehicle.location.updated",
+          "payload": {
+            "vehicle_id": "uuid",
+            "vehicle_type": "ambulance",
+            "status": "dispatched",
+            "latitude": 5.5500,
+            "longitude": -0.2000,
+            "recorded_at": "2026-03-10T12:00:00Z"
+          }
+        }
+        ```
+      parameters: []
+      responses:
+        "101":
+          description: Switching protocols — WebSocket connection established
+
+# ── Components ───────────────────────────────────────────────────────────────
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    VehicleId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Vehicle not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    RegisterVehicleRequest:
+      type: object
+      required: [organization_id, organization_type, vehicle_type]
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+        organization_type:
+          type: string
+          enum: [hospital, police_station, fire_station]
+        vehicle_type:
+          type: string
+          enum: [ambulance, police_car, fire_truck]
+        license_plate:
+          type: string
+          example: "GR-2345-21"
+        driver_user_id:
+          type: string
+          format: uuid
+          description: Assigned driver/responding user (first_responder role)
+
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        organization_type:
+          type: string
+        vehicle_type:
+          type: string
+        license_plate:
+          type: string
+          nullable: true
+        driver_user_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum: [available, dispatched, unavailable]
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+        last_updated:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    LocationUpdateRequest:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+          example: 5.5600
+        longitude:
+          type: number
+          format: double
+          example: -0.1950
+
+    LocationResponse:
+      type: object
+      properties:
+        vehicle_id:
+          type: string
+          format: uuid
+        latitude:
+          type: number
+          nullable: true
+        longitude:
+          type: number
+          nullable: true
+        last_updated:
+          type: string
+          format: date-time
+
+    LocationHistoryEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        vehicle_id:
+          type: string
+          format: uuid
+        latitude:
+          type: number
+        longitude:
+          type: number
+        recorded_at:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string

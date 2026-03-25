@@ -64,12 +64,15 @@ async function main() {
 
   // ── Login as all test actors ───────────────────────────────────────────────
   console.log('\n── Setup: Login as all test actors');
-  const adminToken    = await login('admin@nerdco.gov.gh');    // system_admin
-  const nasToken      = await login('ama@nerdco.gov.gh');      // org_admin — ambulance_service (NAS)
-  const hospitalToken = await login('akosua@nerdco.gov.gh');   // org_admin — hospital (Korle Bu)
-  const policeToken   = await login('police@nerdco.gov.gh');   // org_admin — police_station
-  const fireToken     = await login('fire@nerdco.gov.gh');     // org_admin — fire_station
-  const driverToken   = await login('driver1@nerdco.gov.gh');  // first_responder — NAS HQ
+  const adminToken    = await login('kwame@nerdco.gov.gh');         // system_admin
+  const nasToken      = await login('ama@nerdco.gov.gh');           // org_admin — ambulance_service (NAS)
+  const hospitalToken = await login('akosua@nerdco.gov.gh');        // org_admin — hospital (Korle Bu)
+  const policeToken   = await login('kaneshie@nerdco.gov.gh');      // org_admin — police_station (Kaneshie)
+  const fireToken     = await login('circlefire@nerdco.gov.gh');    // org_admin — fire_station (Circle)
+  const driverToken   = await login('driver1@nerdco.gov.gh');       // first_responder — NAS HQ
+  // Aliases for section G
+  const orgToken       = nasToken;      // any org_admin
+  const responderToken = driverToken;   // first_responder
   console.log('  ✅ All tokens acquired');
 
   // ── Section A: org_admin incident type scoping ────────────────────────────
@@ -206,6 +209,30 @@ async function main() {
   const { status: verifyNoSecret } = await json('GET', `${AUTH}/auth/verify`);
   // If SERVICE_INTERNAL_SECRET is set in env, expect 403. If not set (dev), expect 401 (no token).
   ok('/auth/verify not reachable without credentials', [401, 403].includes(verifyNoSecret), `got ${verifyNoSecret}`);
+
+  // ── Section G: User creation guards ──────────────────────────────────────
+  console.log('\n── Section G: User creation scope enforcement');
+
+  // org_admin cannot create system_admin account
+  const { status: orgAdminEscalateStatus } = await json('POST', `${AUTH}/auth/users`, {
+    name: 'Evil Escalation', email: `escalate_${Date.now()}@test.com`, role: 'system_admin',
+  }, orgToken);
+  ok('org_admin cannot create system_admin', orgAdminEscalateStatus === 403, `got ${orgAdminEscalateStatus}`);
+
+  // first_responder cannot create any user
+  const { status: responderCreateStatus } = await json('POST', `${AUTH}/auth/users`, {
+    name: 'Driver X', email: `driverx_${Date.now()}@test.com`, role: 'first_responder',
+  }, responderToken);
+  ok('first_responder cannot call POST /auth/users', responderCreateStatus === 403, `got ${responderCreateStatus}`);
+
+  // first_responder cannot list users
+  const { status: responderListStatus } = await json('GET', `${AUTH}/auth/users`, null, responderToken);
+  ok('first_responder cannot call GET /auth/users', responderListStatus === 403, `got ${responderListStatus}`);
+
+  // system_admin can list all users
+  const { status: adminListStatus, data: adminList } = await json('GET', `${AUTH}/auth/users`, null, adminToken);
+  ok('system_admin GET /auth/users → 200', adminListStatus === 200, `got ${adminListStatus}`);
+  ok('users array returned', Array.isArray(adminList?.users));
 
   // ── Final result ───────────────────────────────────────────────────────────
   console.log(`\n${'─'.repeat(56)}`);

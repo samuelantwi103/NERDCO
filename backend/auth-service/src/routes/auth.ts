@@ -13,3 +13,4 @@ router.post('/reset-password',  ctrl.resetPassword);
 router.get('/verify',           requireServiceSecret, ctrl.verifyInternal); // internal services only
 
 module.exports = router;
+router.put('/profile', verifyJwt, ctrl.updateProfile);

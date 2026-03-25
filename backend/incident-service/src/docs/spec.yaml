@@ -1,0 +1,444 @@
+openapi: "3.0.3"
+info:
+  title: Emergency Incident Service API
+  description: |
+    Records and manages emergency incidents. Automatically selects and dispatches
+    the nearest available responder based on incident type and geographic proximity.
+  version: "1.0.0"
+
+servers:
+  - url: http://localhost:3002
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Incidents
+    description: Incident lifecycle management
+
+paths:
+
+  /incidents:
+    post:
+      tags: [Incidents]
+      summary: Create a new incident and auto-dispatch a responder
+      description: |
+        Records a new emergency incident and immediately dispatches the nearest responder.
+        The service automatically:
+        1. Maps incident type to responder type (medical→ambulance, fire→fire_truck, robbery/crime→police).
+        2. Fetches all available vehicles of that type from the Dispatch Tracking Service.
+        3. Ranks them by Haversine distance from the incident location.
+        4. Dispatches the nearest vehicle immediately — driver is notified via mobile app.
+        5. Returns the incident record **plus a ranked list of the top 5 alternative vehicles**
+           so the operator can override within the 30-second veto window without a second API call.
+        6. Publishes `incident.dispatched` to the message queue.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateIncidentRequest"
+      responses:
+        "201":
+          description: Incident created and responder dispatched
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateIncidentResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Insufficient permissions (requires system_admin or org_admin)
+        "503":
+          description: No available responders found for this incident type
+
+  /incidents/open:
+    get:
+      tags: [Incidents]
+      summary: List all open (non-resolved) incidents
+      description: Returns incidents with status created, dispatched, or in_progress.
+      parameters:
+        - name: type
+          in: query
+          description: Filter by incident type
+          schema:
+            type: string
+            enum: [robbery, crime, fire, medical]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: List of open incidents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  incidents:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Incident"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /incidents/{id}:
+    get:
+      tags: [Incidents]
+      summary: Get a single incident by ID
+      parameters:
+        - $ref: "#/components/parameters/IncidentId"
+      responses:
+        "200":
+          description: Incident details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  incident:
+                    $ref: "#/components/schemas/Incident"
+                  status_log:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IncidentStatusLogEntry"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /incidents/{id}/status:
+    put:
+      tags: [Incidents]
+      summary: Update incident status
+      description: |
+        Allowed transitions:
+        - `dispatched` → `in_progress`
+        - `in_progress` → `resolved`
+      parameters:
+        - $ref: "#/components/parameters/IncidentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [dispatched, in_progress, resolved]
+                notes:
+                  type: string
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "400":
+          description: Invalid status transition
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Status transition conflict
+        "502":
+          description: Tracking service unavailable during assignment verification
+
+  /incidents/{id}/assign:
+    put:
+      tags: [Incidents]
+      summary: Manually reassign a responder to an incident
+      description: |
+        Override the auto-assigned responder. Used when the original unit is unavailable
+        or a closer unit becomes available. The previously assigned unit is freed (set back
+        to `available`) and the new unit is set to `dispatched`.
+      parameters:
+        - $ref: "#/components/parameters/IncidentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vehicle_id]
+              properties:
+                vehicle_id:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Responder reassigned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Vehicle is not available
+
+  /incidents/{id}/request-support:
+    post:
+      tags: [Incidents]
+      summary: Request an additional support unit for an active incident
+      description: |
+        Dispatches the nearest available support unit (ambulance, police_car, or fire_truck)
+        to the existing incident location. Can be called by operators and assigned first responders.
+      parameters:
+        - $ref: "#/components/parameters/IncidentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [support_type]
+              properties:
+                support_type:
+                  type: string
+                  enum: [ambulance, police_car, fire_truck]
+      responses:
+        "201":
+          description: Support unit dispatched
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  support_unit:
+                    type: object
+                    properties:
+                      vehicle_id:
+                        type: string
+                        format: uuid
+                      vehicle_type:
+                        type: string
+                      license_plate:
+                        type: string
+                        nullable: true
+                      distance_km:
+                        type: number
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Incident state conflict
+        "503":
+          description: No support units available or tracking unavailable
+
+# ── Components ───────────────────────────────────────────────────────────────
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    IncidentId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    CreateIncidentResponse:
+      type: object
+      description: |
+        Returned on successful incident creation. Includes the created incident plus a
+        ranked list of the top 5 nearest available responders so the operator can
+        override the auto-selected vehicle within the 30-second veto window without
+        making a second API call.
+      properties:
+        incident:
+          $ref: "#/components/schemas/Incident"
+        dispatch_override_window_secs:
+          type: integer
+          example: 30
+          description: Seconds the operator has to override the auto-selected vehicle
+        alternative_responders:
+          type: array
+          maxItems: 5
+          description: Ranked list of available vehicles (nearest first), excluding the auto-selected one
+          items:
+            type: object
+            properties:
+              vehicle_id:
+                type: string
+                format: uuid
+              vehicle_type:
+                type: string
+              license_plate:
+                type: string
+                nullable: true
+              distance_km:
+                type: number
+                description: Haversine distance from incident location
+              latitude:
+                type: number
+              longitude:
+                type: number
+
+    CreateIncidentRequest:
+      type: object
+      required: [citizen_name, incident_type, latitude, longitude]
+      properties:
+        citizen_name:
+          type: string
+          example: "Ama Owusu"
+        incident_type:
+          type: string
+          enum: [robbery, crime, fire, medical]
+        latitude:
+          type: number
+          format: double
+          example: 5.5500
+        longitude:
+          type: number
+          format: double
+          example: -0.2000
+        notes:
+          type: string
+          example: "Victim is unresponsive, located at main entrance"
+
+    Incident:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        citizen_name:
+          type: string
+        incident_type:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+        notes:
+          type: string
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+        assigned_unit_id:
+          type: string
+          format: uuid
+          nullable: true
+        assigned_unit_type:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [created, dispatched, in_progress, resolved]
+        dispatched_at:
+          type: string
+          format: date-time
+          nullable: true
+        in_progress_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    IncidentStatusLogEntry:
+      type: object
+      properties:
+        old_status:
+          type: string
+          nullable: true
+        new_status:
+          type: string
+        changed_by:
+          type: string
+          format: uuid
+        notes:
+          type: string
+          nullable: true
+        changed_at:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string

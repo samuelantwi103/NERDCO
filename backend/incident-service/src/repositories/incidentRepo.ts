@@ -2,11 +2,11 @@
 const pool = require('../db/pool');
 const { v4: uuidv4 } = require('uuid');
 
-async function create({ id, citizenName, incidentType, severity = 'high', latitude, longitude, notes, createdBy }) {
+async function create({ id, citizenName, incidentType, severity = 'high', latitude, longitude, notes, createdBy, parentIncidentId = null }) {
   await pool.query(
-    `INSERT INTO incidents (id, citizen_name, incident_type, severity, latitude, longitude, notes, created_by, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'created')`,
-    [id, citizenName, incidentType, severity, latitude, longitude, notes || null, createdBy]
+    `INSERT INTO incidents (id, citizen_name, incident_type, severity, latitude, longitude, notes, created_by, parent_incident_id, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'created')`,
+    [id, citizenName, incidentType, severity, latitude, longitude, notes || null, createdBy, parentIncidentId]
   );
 }
 
@@ -33,9 +33,12 @@ async function findById(id) {
   return rows[0] || null;
 }
 
-async function findOpen() {
+async function findOpen({ limit = 100, offset = 0 }: { limit?: number; offset?: number } = {}) {
+  const safeLimit  = Math.min(Math.max(1, Number(limit)  || 100), 500);
+  const safeOffset = Math.max(0, Number(offset) || 0);
   const { rows } = await pool.query(
-    `SELECT * FROM incidents WHERE status != 'resolved' ORDER BY created_at DESC`
+    `SELECT * FROM incidents WHERE status != 'resolved' ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+    [safeLimit, safeOffset]
   );
   return rows;
 }
@@ -57,13 +60,22 @@ async function findNearbyOpen(incidentType: string, lat: number, lng: number) {
   return rows;
 }
 
-async function findUnassigned(incidentType) {
+async function findUnassigned(incidentType: string | null) {
+  if (incidentType) {
+    // Scoped query used by the dispatch retry background job for a specific type
+    const { rows } = await pool.query(
+      `SELECT * FROM incidents WHERE status = 'created' AND assigned_unit_id IS NULL
+       AND incident_type = $1 ORDER BY created_at ASC LIMIT 1`,
+      [incidentType]
+    );
+    return rows[0] || null;
+  }
+  // Fetch all unassigned incidents across all types (used by retry job)
   const { rows } = await pool.query(
     `SELECT * FROM incidents WHERE status = 'created' AND assigned_unit_id IS NULL
-     AND incident_type = $1 ORDER BY created_at ASC LIMIT 1`,
-    [incidentType]
+     ORDER BY created_at ASC LIMIT 50`
   );
-  return rows[0] || null;
+  return rows;
 }
 
 async function logStatusChange({ incidentId, oldStatus, newStatus, changedBy, notes }) {
@@ -82,4 +94,13 @@ async function getStatusLog(incidentId) {
   return rows;
 }
 
-module.exports = { create, assignUnit, updateStatus, findById, findOpen, findNearbyOpen, findUnassigned, logStatusChange, getStatusLog };
+// Returns all child incidents linked to a parent (created via request-support)
+async function findRelated(parentId: string) {
+  const { rows } = await pool.query(
+    `SELECT * FROM incidents WHERE parent_incident_id = $1 ORDER BY created_at ASC`,
+    [parentId]
+  );
+  return rows;
+}
+
+module.exports = { create, assignUnit, updateStatus, findById, findOpen, findNearbyOpen, findUnassigned, logStatusChange, getStatusLog, findRelated };

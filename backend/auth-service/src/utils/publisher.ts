@@ -17,7 +17,9 @@ export async function connectPublisher() {
   }
   try {
     const conn = await amqplib.connect(url);
+    conn.on('error', (err: any) => console.error('[auth-service] RabbitMQ connection error:', err));
     channel = await conn.createChannel();
+    channel.on('error', (err: any) => console.error('[auth-service] RabbitMQ channel error:', err));
     await channel.assertExchange(EXCHANGE, 'topic', { durable: true });
     console.log('[auth-service] RabbitMQ publisher ready');
   } catch (err: any) {

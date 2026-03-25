@@ -1,0 +1,278 @@
+openapi: "3.0.3"
+info:
+  title: Analytics & Monitoring Service API
+  description: |
+    Provides operational analytics and insights aggregated from all other services.
+    Data is sourced from RabbitMQ event subscriptions — this service never calls
+    other services directly. All endpoints are read-only.
+  version: "1.0.0"
+
+servers:
+  - url: http://localhost:3004
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Analytics
+    description: Aggregated operational statistics
+
+paths:
+
+  /analytics/response-times:
+    get:
+      tags: [Analytics]
+      summary: Average response times to incidents
+      description: |
+        Returns the average time (in seconds) from incident creation to responder dispatch.
+        Optionally filtered by incident type and date range.
+      parameters:
+        - name: type
+          in: query
+          description: Filter by incident type
+          schema:
+            type: string
+            enum: [robbery, crime, fire, medical]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Start of date range (incident created_at)
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: End of date range (incident created_at)
+      responses:
+        "200":
+          description: Response time statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResponseTimesResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /analytics/incidents-by-region:
+    get:
+      tags: [Analytics]
+      summary: Incident counts grouped by geographic region
+      description: |
+        Groups incidents into 0.1-degree latitude/longitude grid cells (approx 11 km²).
+        Returns a count per region per incident type for heat-map visualisation.
+      parameters:
+        - name: type
+          in: query
+          description: Filter by incident type
+          schema:
+            type: string
+            enum: [robbery, crime, fire, medical]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+            maximum: 500
+          description: Top N regions by incident count
+      responses:
+        "200":
+          description: Incidents by region
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentsByRegionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /analytics/resource-utilization:
+    get:
+      tags: [Analytics]
+      summary: Vehicle resource utilisation by organisation
+      description: |
+        Returns a breakdown of vehicles grouped by organisation and status
+        (available, dispatched, unavailable). Useful for identifying over- or
+        under-resourced emergency services.
+      parameters:
+        - name: organization_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter to a specific organisation
+        - name: vehicle_type
+          in: query
+          schema:
+            type: string
+            enum: [ambulance, police_car, fire_truck]
+      responses:
+        "200":
+          description: Resource utilisation breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResourceUtilizationResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /analytics/summary:
+    get:
+      tags: [Analytics]
+      summary: High-level dashboard summary
+      description: Returns key metrics for the admin dashboard home page.
+      responses:
+        "200":
+          description: Summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SummaryResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+# ── Components ───────────────────────────────────────────────────────────────
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid JWT
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    ResponseTimesResponse:
+      type: object
+      properties:
+        overall_avg_secs:
+          type: integer
+          example: 245
+        overall_min_secs:
+          type: integer
+          example: 42
+        overall_max_secs:
+          type: integer
+          example: 1200
+        total_incidents:
+          type: integer
+        by_type:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              avg_secs:
+                type: integer
+              min_secs:
+                type: integer
+              max_secs:
+                type: integer
+              count:
+                type: integer
+          example:
+            medical:
+              avg_secs: 180
+              min_secs: 35
+              max_secs: 900
+              count: 42
+            fire:
+              avg_secs: 310
+              min_secs: 60
+              max_secs: 1200
+              count: 18
+
+    IncidentsByRegionResponse:
+      type: object
+      properties:
+        total_regions:
+          type: integer
+        regions:
+          type: array
+          items:
+            type: object
+            properties:
+              lat_grid:
+                type: number
+                description: Center latitude of the 0.1-degree grid cell
+              lng_grid:
+                type: number
+                description: Center longitude of the 0.1-degree grid cell
+              incident_type:
+                type: string
+              incident_count:
+                type: integer
+          example:
+            - lat_grid: 5.5
+              lng_grid: -0.2
+              incident_type: medical
+              incident_count: 27
+            - lat_grid: 5.6
+              lng_grid: -0.2
+              incident_type: robbery
+              incident_count: 14
+
+    ResourceUtilizationResponse:
+      type: object
+      properties:
+        by_organization:
+          type: array
+          items:
+            type: object
+            properties:
+              organization_id:
+                type: string
+                format: uuid
+              organization_type:
+                type: string
+              vehicle_type:
+                type: string
+              available:
+                type: integer
+              dispatched:
+                type: integer
+              unavailable:
+                type: integer
+              total:
+                type: integer
+
+    SummaryResponse:
+      type: object
+      properties:
+        open_incidents:
+          type: integer
+        incidents_today:
+          type: integer
+        avg_response_time_secs_today:
+          type: integer
+        vehicles_available:
+          type: integer
+        vehicles_dispatched:
+          type: integer
+        incidents_resolved_today:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
