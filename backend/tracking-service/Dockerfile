@@ -1,21 +1,22 @@
-# Build context: ./backend  (set in docker-compose.yml)
+# Build context: repository root
 FROM node:22-alpine
 RUN npm install -g pnpm
 
-WORKDIR /app
+WORKDIR /app/backend
 
-COPY package.json pnpm-workspace.yaml ./
-COPY domain-types/package.json    ./domain-types/
-COPY tracking-service/package.json ./tracking-service/
+COPY backend/package.json backend/pnpm-lock.yaml backend/pnpm-workspace.yaml ./
+COPY backend/tsconfig.base.json ./tsconfig.base.json
+COPY backend/domain-types/package.json ./domain-types/
+COPY backend/tracking-service/package.json ./tracking-service/
 
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
-COPY domain-types/    ./domain-types/
-COPY tracking-service/ ./tracking-service/
+COPY backend/domain-types/ ./domain-types/
+COPY backend/tracking-service/ ./tracking-service/
 
 RUN pnpm --filter @nerdco/domain-types build
 RUN pnpm --filter tracking-service build
 
-WORKDIR /app/tracking-service
+WORKDIR /app/backend/tracking-service
 EXPOSE 3003
 CMD ["node", "dist/index.js"]

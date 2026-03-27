@@ -1,5 +1,5 @@
 # NERDCO — Docker Compose
-# Build context is the backend/ folder (where this file lives).
+# Build context is the repository root (../ from this file).
 # Usage: docker compose up --build   (run from backend/ directory)
 #
 # Databases and RabbitMQ are cloud-hosted (Neon + CloudAMQP) — not in this file.
@@ -16,8 +16,8 @@ services:
 
   auth-service:
     build:
-      context: ./
-      dockerfile: auth-service/Dockerfile
+      context: ../
+      dockerfile: backend/auth-service/Dockerfile
     container_name: nerdco-auth
     restart: unless-stopped
     ports:
@@ -32,8 +32,8 @@ services:
 
   incident-service:
     build:
-      context: ./
-      dockerfile: incident-service/Dockerfile
+      context: ../
+      dockerfile: backend/incident-service/Dockerfile
     container_name: nerdco-incident
     restart: unless-stopped
     ports:
@@ -56,8 +56,8 @@ services:
 
   tracking-service:
     build:
-      context: ./
-      dockerfile: tracking-service/Dockerfile
+      context: ../
+      dockerfile: backend/tracking-service/Dockerfile
     container_name: nerdco-tracking
     restart: unless-stopped
     ports:
@@ -75,8 +75,8 @@ services:
 
   analytics-service:
     build:
-      context: ./
-      dockerfile: analytics-service/Dockerfile
+      context: ../
+      dockerfile: backend/analytics-service/Dockerfile
     container_name: nerdco-analytics
     restart: unless-stopped
     ports:

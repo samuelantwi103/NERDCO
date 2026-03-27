@@ -45,6 +45,21 @@ docker-compose up --build -d
 ```
 Note: Make sure `.env` files are populated before building.
 
+### Docker Build Context Notes (Monorepo)
+- Service Dockerfiles in `backend/*/Dockerfile` are configured to build from the repository root context.
+- This is required because each service depends on the shared `backend/domain-types` workspace package.
+
+For Docker Compose (from `backend/`):
+- `context` is set to `../` and `dockerfile` is set to `backend/<service>/Dockerfile`.
+
+For Render (or any per-service Docker deployment):
+- Root/build context should be repository root.
+- Dockerfile path should be one of:
+   - `backend/auth-service/Dockerfile`
+   - `backend/incident-service/Dockerfile`
+   - `backend/tracking-service/Dockerfile`
+   - `backend/analytics-service/Dockerfile`
+
 ## 3. Flutter Mobile App (APK Build)
 
 To build the first responder Android application:
