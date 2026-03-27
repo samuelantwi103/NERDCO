@@ -75,7 +75,79 @@ This ensures that:
 
 **Important:** The Dockerfiles depend on this build script working correctly. If a Render deployment fails with `ENOENT: spec.yaml`, ensure this copy step completed successfully.
 
-## 3. Flutter Mobile App (APK Build)
+## 3. Render Deployment (Node.js Runtime)
+
+### Per-Service Deployment Configuration
+
+Each microservice is deployed independently on Render as a **Node.js** service. Configure each service as follows:
+
+#### Common Settings (All Four Services)
+- **Root Directory**: `backend`
+- **Environment**: Node.js
+- **Node Version**: 22
+
+#### Auth Service
+- **Build Command**:
+  ```bash
+  pnpm install --frozen-lockfile && pnpm --filter @nerdco/domain-types build && pnpm --filter auth-service build
+  ```
+- **Start Command**:
+  ```bash
+  pnpm --filter auth-service start
+  ```
+
+#### Incident Service
+- **Build Command**:
+  ```bash
+  pnpm install --frozen-lockfile && pnpm --filter @nerdco/domain-types build && pnpm --filter incident-service build
+  ```
+- **Start Command**:
+  ```bash
+  pnpm --filter incident-service start
+  ```
+
+#### Tracking Service
+- **Build Command**:
+  ```bash
+  pnpm install --frozen-lockfile && pnpm --filter @nerdco/domain-types build && pnpm --filter tracking-service build
+  ```
+- **Start Command**:
+  ```bash
+  pnpm --filter tracking-service start
+  ```
+
+#### Analytics Service
+- **Build Command**:
+  ```bash
+  pnpm install --frozen-lockfile && pnpm --filter @nerdco/domain-types build && pnpm --filter analytics-service build
+  ```
+- **Start Command**:
+  ```bash
+  pnpm --filter analytics-service start
+  ```
+
+### Environment Variables
+For each service, set the following in Render's environment settings:
+- `DATABASE_URL`: Neon PostgreSQL connection string
+- `RABBITMQ_URL`: CloudAMQP connection string
+- `JWT_PRIVATE_KEY`: RS256 private key (Base64-encoded)
+- `JWT_PUBLIC_KEY`: RS256 public key (Base64-encoded)
+- `SERVICE_INTERNAL_SECRET`: Shared secret for internal service-to-service communication
+- `NODE_ENV`: `production`
+
+### Internal Service URLs
+For microservices to communicate, each service needs the internal URLs of other services:
+- **Auth Service Internal URL**: (Render provides this after deployment)
+- **Incident Service Internal URL**: (Render provides this after deployment)
+- **Tracking Service Internal URL**: (Render provides this after deployment)
+- **Analytics Service Internal URL**: (Render provides this after deployment)
+
+After all four services are deployed on Render, configure additional environment variables:
+- `INCIDENT_SERVICE_URL`: Incident service's internal Render URL
+- `TRACKING_SERVICE_URL`: Tracking service's internal Render URL
+- `AUTH_SERVICE_URL`: Auth service's internal Render URL
+
+## 4. Flutter Mobile App (APK Build)
 
 To build the first responder Android application:
 1. Ensure the Flutter SDK (3.x) is installed.
