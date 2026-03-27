@@ -60,6 +60,21 @@ For Render (or any per-service Docker deployment):
    - `backend/tracking-service/Dockerfile`
    - `backend/analytics-service/Dockerfile`
 
+### Build Process and Static Assets
+Each microservice's build script includes a step to copy static assets (such as `src/docs/spec.yaml`) to the compiled `dist/` directory. This is essential because all four services expose Swagger API documentation at `/docs` and include the OpenAPI spec file.
+
+The build command in each service's `package.json`:
+```bash
+"build": "tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/docs', 'dist/docs', { recursive: true, force: true })\""
+```
+
+This ensures that:
+1. TypeScript files are compiled to JavaScript
+2. All static files in `src/docs/` are copied to `dist/docs/`
+3. The runtime can successfully load `spec.yaml` when the service starts
+
+**Important:** The Dockerfiles depend on this build script working correctly. If a Render deployment fails with `ENOENT: spec.yaml`, ensure this copy step completed successfully.
+
 ## 3. Flutter Mobile App (APK Build)
 
 To build the first responder Android application:
