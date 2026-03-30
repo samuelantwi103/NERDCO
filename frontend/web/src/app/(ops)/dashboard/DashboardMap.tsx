@@ -8,13 +8,13 @@ const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 const DEFAULT_CENTER = { lat: 5.6037, lng: -0.1870 }; // Accra
 
 /** NAPSG colours */
-const INCIDENT_COLOR: Record<string, string> = {
+export const INCIDENT_COLOR: Record<string, string> = {
   medical: '#E63946',
   fire:    '#F26419',
   crime:   '#1565C0',
   robbery: '#1565C0',
 };
-const VEHICLE_COLOR: Record<string, string> = {
+export const VEHICLE_COLOR: Record<string, string> = {
   available:   '#107C10',
   dispatched:  '#FF8C00',
   unavailable: '#797775',
@@ -43,7 +43,7 @@ const FACILITY_ICON: Record<string, string> = {
 // ── Pin builders ─────────────────────────────────────────────────────────
 
 /** Large teardrop-shaped incident pin */
-function makeIncidentPin(type: string, isSelected: boolean, childCount: number, isAwaiting: boolean): HTMLElement {
+export function makeIncidentPin(type: string, isSelected: boolean, childCount: number, isAwaiting: boolean): HTMLElement {
   const color    = INCIDENT_COLOR[type] ?? '#888';
   const bodySize = isSelected ? 52 : 40;
   const spikeH   = isSelected ? 14 : 10;
@@ -105,7 +105,7 @@ function makeIncidentPin(type: string, isSelected: boolean, childCount: number, 
 }
 
 /** Vehicle pin — coloured square badge with car icon */
-function makeVehiclePin(status: string, isLinked = false): HTMLElement {
+export function makeVehiclePin(status: string, isLinked = false): HTMLElement {
   const color = VEHICLE_COLOR[status] ?? '#797775';
   const size  = isLinked ? 30 : 22;
   const el = document.createElement('div');
@@ -122,7 +122,7 @@ function makeVehiclePin(status: string, isLinked = false): HTMLElement {
 }
 
 /** Facility pin — large square with icon + label */
-function makeFacilityPin(type: string, name: string, isMyFacility: boolean): HTMLElement {
+export function makeFacilityPin(type: string, name: string, isMyFacility: boolean): HTMLElement {
   const color   = FACILITY_COLOR[type] ?? '#555';
   const size    = isMyFacility ? 48 : 40;
   const iconSvg = FACILITY_ICON[type] ?? '<circle cx="12" cy="12" r="8"/>';
@@ -184,20 +184,22 @@ export interface Facility {
 }
 
 interface MapProps {
-  incidents:    any[];
-  vehicles:     any[];
-  selectedId:   string | null;
-  onSelect:     (id: string) => void;
-  facilities?:  Facility[];
-  myLocation?:  { lat: number; lng: number } | null;
-  hidePOIs?:    boolean;
+  incidents:      any[];
+  vehicles:       any[];
+  selectedId:     string | null;
+  onSelect:       (id: string) => void;
+  facilities?:    Facility[];
+  myLocation?:    { lat: number; lng: number } | null;
+  hidePOIs?:      boolean;
   enableRouting?: boolean;
+  /** Simulation route path — draws an animated orange polyline when provided */
+  simulationPath?: Array<{ lat: number; lng: number }>;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────
 export const DashboardMap = ({
   incidents, vehicles, selectedId, onSelect,
-  facilities = [], myLocation, hidePOIs, enableRouting,
+  facilities = [], myLocation, hidePOIs, enableRouting, simulationPath,
 }: MapProps) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef          = useRef<google.maps.Map | null>(null);
@@ -207,6 +209,7 @@ export const DashboardMap = ({
   const myLocMarkerRef  = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const fieldPolyRef    = useRef<google.maps.Polyline | null>(null);
   const routeLinesRef   = useRef<google.maps.Polyline[]>([]);
+  const simPolyRef      = useRef<google.maps.Polyline | null>(null);
   const popupRef        = useRef<HTMLElement | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
@@ -239,6 +242,16 @@ export const DashboardMap = ({
         map, path: [], geodesic: true,
         strokeColor: '#00BFFF', strokeOpacity: 0.85, strokeWeight: 5,
         icons: [{ icon: { path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillOpacity: 1, strokeOpacity: 1 }, offset: '50%' }],
+      });
+      // Simulation route polyline (animated orange, drawn on top)
+      simPolyRef.current = new google.maps.Polyline({
+        map, path: [], geodesic: true,
+        strokeColor: '#FF8C00', strokeOpacity: 0.9, strokeWeight: 5,
+        icons: [{
+          icon: { path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3.5, fillColor: '#FF8C00', fillOpacity: 1, strokeOpacity: 1, strokeColor: '#fff', strokeWeight: 1 },
+          offset: '25%', repeat: '120px',
+        }],
+        zIndex: 50,
       });
       mapRef.current = map;
       setMapReady(true);
@@ -490,6 +503,17 @@ export const DashboardMap = ({
     if (isNaN(dest.lat) || isNaN(dest.lng)) return;
     fieldPolyRef.current.setPath([myLocation, dest]);
   }, [myLocation, selectedId, enableRouting, mapReady, incidents]);
+
+  // ── Simulation route polyline ────────────────────────────────────────
+  useEffect(() => {
+    if (!mapReady || !simPolyRef.current) return;
+    simPolyRef.current.setPath(simulationPath ?? []);
+    if (simulationPath && simulationPath.length > 1 && mapRef.current) {
+      const bounds = new google.maps.LatLngBounds();
+      simulationPath.forEach(p => bounds.extend(p));
+      mapRef.current.fitBounds(bounds, 80);
+    }
+  }, [simulationPath, mapReady]);
 
   // ── Render ────────────────────────────────────────────────────────────
   return (

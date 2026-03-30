@@ -20,7 +20,9 @@ import { PlayCircleRegular, StopRegular, ArrowResetRegular, VehicleCarRegular } 
 import { useAuth } from '@/lib/context/AuthContext';
 import { listVehicles, updateVehicleLocation } from '@/lib/api/tracking';
 import { listOpenIncidents } from '@/lib/api/incidents';
-import { DashboardMap } from '@/app/(ops)/dashboard/DashboardMap';
+import { listOrganizations } from '@/lib/api/auth';
+import { loadGoogleMaps } from '@/lib/maps/loader';
+import { DashboardMap, type Facility } from '@/app/(ops)/dashboard/DashboardMap';
 import { POLLING } from '@/lib/config/polling';
 import { useAutoRefresh } from '@/lib/hooks/useAutoRefresh';
 
@@ -37,18 +39,49 @@ function haversine(lat1: number, lng1: number, lat2: number, lng2: number) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// ── Interpolate N waypoints along a straight line ─────────────────────────
-function interpolate(
-  lat1: number, lng1: number,
-  lat2: number, lng2: number,
-  steps: number,
-): Array<{ lat: number; lng: number }> {
-  const pts: Array<{ lat: number; lng: number }> = [];
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    pts.push({ lat: lat1 + (lat2 - lat1) * t, lng: lng1 + (lng2 - lng1) * t });
-  }
-  return pts;
+/** Request a driving route from Google Maps DirectionsService.
+ *  Returns an array of LatLng points covering the full path (vehicle → incident → hospital). */
+async function getDrivingRoute(
+  origin: google.maps.LatLngLiteral,
+  waypoint: google.maps.LatLngLiteral,
+  destination: google.maps.LatLngLiteral,
+): Promise<Array<{ lat: number; lng: number }>> {
+  return new Promise((resolve) => {
+    const svc = new google.maps.DirectionsService();
+    svc.route(
+      {
+        origin,
+        destination,
+        waypoints: [{ location: waypoint, stopover: true }],
+        travelMode: google.maps.TravelMode.DRIVING,
+        optimizeWaypoints: false,
+      },
+      (result, status) => {
+        if (status !== google.maps.DirectionsStatus.OK || !result) {
+          // Fallback: straight-line interpolation if directions unavailable
+          const pts: Array<{ lat: number; lng: number }> = [];
+          const steps = 40;
+          for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            pts.push({ lat: origin.lat + (waypoint.lat - origin.lat) * t, lng: origin.lng + (waypoint.lng - origin.lng) * t });
+          }
+          for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            pts.push({ lat: waypoint.lat + (destination.lat - waypoint.lat) * t, lng: waypoint.lng + (destination.lng - waypoint.lng) * t });
+          }
+          resolve(pts);
+          return;
+        }
+        const path: Array<{ lat: number; lng: number }> = [];
+        result.routes[0].legs.forEach(leg => {
+          leg.steps.forEach(step => {
+            step.path.forEach(p => path.push({ lat: p.lat(), lng: p.lng() }));
+          });
+        });
+        resolve(path);
+      },
+    );
+  });
 }
 
 type SimPhase = 'idle' | 'to_incident' | 'to_hospital' | 'done';
@@ -85,9 +118,12 @@ export default function SimulatePage() {
   const token = user?.access_token ?? '';
 
   // ── Data state ─────────────────────────────────────────────────────────
-  const [vehicles,  setVehicles]  = useState<any[]>([]);
-  const [incidents, setIncidents] = useState<any[]>([]);
-  const [loading,   setLoading]   = useState(true);
+  const [vehicles,   setVehicles]   = useState<any[]>([]);
+  const [incidents,  setIncidents]  = useState<any[]>([]);
+  const [hospitals,  setHospitals]  = useState<Facility[]>([]);
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [routePath,  setRoutePath]  = useState<Array<{ lat: number; lng: number }>>([]);
 
   // ── Selection ──────────────────────────────────────────────────────────
   const [selectedVehicleId,  setSelectedVehicleId]  = useState<string>('');
@@ -112,10 +148,25 @@ export default function SimulatePage() {
   // ── Initial data load ──────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     try {
-      const [v, i] = await Promise.all([listVehicles(token), listOpenIncidents(token)]);
+      const [v, i, orgs] = await Promise.all([
+        listVehicles(token),
+        listOpenIncidents(token),
+        listOrganizations(token),
+      ]);
       setVehicles(v);
       setLiveVehicles(v);
       setIncidents(i);
+      const facs: Facility[] = orgs
+        .filter((o: any) => o.latitude && o.longitude)
+        .map((o: any) => ({
+          id:   o.id,
+          lat:  parseFloat(o.latitude),
+          lng:  parseFloat(o.longitude),
+          name: o.name,
+          type: o.type ?? o.org_type ?? 'hospital',
+        }));
+      setFacilities(facs);
+      setHospitals(facs.filter(f => f.type === 'hospital' || f.type === 'ambulance_service'));
     } finally {
       setLoading(false);
     }
@@ -135,18 +186,13 @@ export default function SimulatePage() {
   const selectedVehicle  = vehicles.find(v => v.id === selectedVehicleId);
   const selectedIncident = incidents.find(i => i.id === selectedIncidentId);
 
-  function nearestHospital(): { lat: number; lng: number; name: string } | null {
-    // Accra hospitals (fallback static list for demo; real system would query /organizations/hospitals/available)
-    const HOSPITALS = [
-      { lat: 5.6037, lng: -0.1870, name: 'Korle Bu Teaching Hospital' },
-      { lat: 5.6145, lng: -0.1882, name: '37 Military Hospital' },
-      { lat: 5.5882, lng: -0.1762, name: 'Ridge Hospital' },
-    ];
-    if (!selectedIncident) return HOSPITALS[0];
-    const inc = selectedIncident;
-    return HOSPITALS.slice().sort((a, b) =>
-      haversine(inc.latitude, inc.longitude, a.lat, a.lng) -
-      haversine(inc.latitude, inc.longitude, b.lat, b.lng)
+  function nearestHospital(): Facility | null {
+    if (hospitals.length === 0) return null;
+    if (!selectedIncident) return hospitals[0];
+    const iLat = parseFloat(selectedIncident.latitude);
+    const iLng = parseFloat(selectedIncident.longitude);
+    return hospitals.slice().sort((a, b) =>
+      haversine(iLat, iLng, a.lat, a.lng) - haversine(iLat, iLng, b.lat, b.lng)
     )[0];
   }
 
@@ -170,16 +216,32 @@ export default function SimulatePage() {
     const hospital = nearestHospital();
     if (!hospital) return;
 
-    // Build full waypoint list: vehicle → incident → hospital
-    const leg1 = interpolate(vLat, vLng, iLat, iLng, STEPS_PER_LEG);
-    const leg2 = interpolate(iLat, iLng, hospital.lat, hospital.lng, STEPS_PER_LEG);
-    const allWaypoints = [...leg1, ...leg2];
-
-    waypointsRef.current = allWaypoints;
-    stepRef.current = 0;
     setPhase('to_incident');
     phaseRef.current = 'to_incident';
     setProgress(0);
+    setStatusMsg(`Computing route for ${selectedVehicle.license_plate}…`);
+
+    // Ensure Maps API is loaded, then get real driving route
+    await loadGoogleMaps(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '');
+    const allWaypoints = await getDrivingRoute(
+      { lat: vLat, lng: vLng },
+      { lat: iLat, lng: iLng },
+      { lat: hospital.lat, lng: hospital.lng },
+    );
+
+    // Show entire planned route on the map before starting
+    setRoutePath(allWaypoints);
+
+    // Find the leg-split index (closest point to the incident)
+    let splitIdx = 0;
+    let minDist = Infinity;
+    allWaypoints.forEach((p, idx) => {
+      const d = haversine(p.lat, p.lng, iLat, iLng);
+      if (d < minDist) { minDist = d; splitIdx = idx; }
+    });
+
+    waypointsRef.current = allWaypoints;
+    stepRef.current = 0;
     setStatusMsg(`Dispatching ${selectedVehicle.license_plate} → ${selectedIncident.location_name ?? 'incident'}`);
 
     timerRef.current = setInterval(async () => {
@@ -190,6 +252,7 @@ export default function SimulatePage() {
         setPhase('done');
         phaseRef.current = 'done';
         setProgress(100);
+        setRoutePath([]);
         setStatusMsg(`Simulation complete. ${selectedVehicle.license_plate} arrived at ${hospital.name}.`);
         return;
       }
@@ -211,7 +274,7 @@ export default function SimulatePage() {
       const pct = Math.round((newStep / wps.length) * 100);
       setProgress(pct);
 
-      if (newStep === STEPS_PER_LEG) {
+      if (newStep >= splitIdx && phaseRef.current === 'to_incident') {
         setPhase('to_hospital');
         phaseRef.current = 'to_hospital';
         setStatusMsg(`${selectedVehicle.license_plate} at incident — transporting to ${hospital.name}`);
@@ -224,6 +287,7 @@ export default function SimulatePage() {
     setPhase('idle');
     phaseRef.current = 'idle';
     setProgress(0);
+    setRoutePath([]);
     setStatusMsg('Select a vehicle and incident to begin.');
     loadData();
   }
@@ -394,8 +458,11 @@ export default function SimulatePage() {
         <DashboardMap
           incidents={incidents}
           vehicles={liveVehicles}
+          facilities={facilities}
           selectedId={null}
           onSelect={(id) => { if (phase === 'idle') setSelectedIncidentId(id); }}
+          simulationPath={routePath}
+          hidePOIs={true}
         />
       </div>
     </div>

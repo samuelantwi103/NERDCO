@@ -7,6 +7,7 @@ import { consumeMapLoad } from '@/lib/maps/quota';
 import { showInfoPopup, dismissInfoPopup } from '@/lib/maps/infoPopup';
 import { useVehicleMap } from './useVehicleMap';
 import { VehicleSidebar } from './VehicleSidebar';
+import { makeVehiclePin } from '@/app/(ops)/dashboard/DashboardMap';
 import { ConnectionBanner } from '@/components/ConnectionBanner';
 
 const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
@@ -78,23 +79,13 @@ export default function VehiclesMapPage() {
     if (!mapObj.current || !window.google) return;
     vehicles.forEach(v => {
       if (!v.latitude || !v.longitude) return;
-      const pos   = { lat: parseFloat(v.latitude), lng: parseFloat(v.longitude) };
-      const color = STATUS_COLOR[v.status] ?? '#797775';
-      
-      const pin = document.createElement('div');
-      pin.style.width = '18px';
-      pin.style.height = '18px';
-      pin.style.borderRadius = '50%';
-      pin.style.backgroundColor = color;
-      pin.style.border = '2px solid white';
-      pin.style.boxShadow = '0 2px 4px rgba(0,0,0,0.3)';
+      const pos = { lat: parseFloat(v.latitude), lng: parseFloat(v.longitude) };
+      const pin = makeVehiclePin(v.status, false);
 
       if (markersRef.current.has(v.id)) {
         const m = markersRef.current.get(v.id)!;
         (m as any).position = pos;
-        if (m.content instanceof HTMLElement) {
-          m.content.style.backgroundColor = color;
-        }
+        m.content = makeVehiclePin(v.status, false);
       } else {
         const m = new window.google.maps.marker.AdvancedMarkerElement({
           position: pos,

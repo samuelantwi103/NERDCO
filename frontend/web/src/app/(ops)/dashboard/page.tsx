@@ -42,7 +42,7 @@ function DashboardContent() {
   const params = useSearchParams();
 
   const [queueOpen,  setQueueOpen]  = useState(true);
-  const [detailOpen, setDetailOpen] = useState(true);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const {
     incidents, vehicles, organizations, selectedId, detail,
@@ -108,7 +108,7 @@ function DashboardContent() {
         {queueOpen ? '◀' : '▶'}
       </div>
 
-      {/* Map — fills remaining space */}
+      {/* Map — fills ALL remaining space; detail panel floats over it */}
       <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
         <DashboardMap
           incidents={selectedId && detail ? incidents.filter(i => i.id === selectedId || i.parent_incident_id === detail.id) : incidents}
@@ -118,35 +118,44 @@ function DashboardContent() {
           onSelect={selectIncident}
           hidePOIs={true}
         />
-      </div>
 
-      {/* Detail toggle tab — pinned to left edge of detail panel */}
-      <div
-        style={{
-          ...TOGGLE_STYLE,
-          right: detailOpen ? '320px' : 0,
-          left: 'auto',
-          borderRadius: detailOpen ? '6px 0 0 6px' : '6px',
-        }}
-        onClick={() => setDetailOpen(o => !o)}
-        title={detailOpen ? 'Hide detail' : 'Show detail'}
-      >
-        {detailOpen ? '▶' : '◀'}
-      </div>
+        {/* Detail toggle — only visible when an incident is selected or panel is open */}
+        {(selectedId || detailOpen) && (
+          <div
+            style={{
+              ...TOGGLE_STYLE,
+              right: detailOpen ? '320px' : 0,
+              left: 'auto',
+              borderRadius: detailOpen ? '6px 0 0 6px' : '6px',
+              zIndex: 30,
+            }}
+            onClick={() => setDetailOpen(o => !o)}
+            title={detailOpen ? 'Hide detail' : 'Show detail'}
+          >
+            {detailOpen ? '▶' : '◀'}
+          </div>
+        )}
 
-      {/* Detail panel */}
-      {detailOpen && (
-        <DashboardDetail
-          detail={detail}
-          vehicles={vehicles}
-          organizations={organizations}
-          statusBusy={statusBusy}
-          overriding={overriding}
-          onStatusUpdate={handleStatusUpdate}
-          onOverride={handleOverride}
-          relatedIncidents={incidents.filter(i => i.parent_incident_id === detail?.id)}
-        />
-      )}
+        {/* Detail panel — floats over the map on the right */}
+        {detailOpen && selectedId && (
+          <div style={{
+            position: 'absolute', top: 0, right: 0, bottom: 0,
+            width: '320px', zIndex: 20,
+            boxShadow: '-4px 0 16px rgba(0,0,0,0.18)',
+          }}>
+            <DashboardDetail
+              detail={detail}
+              vehicles={vehicles}
+              organizations={organizations}
+              statusBusy={statusBusy}
+              overriding={overriding}
+              onStatusUpdate={handleStatusUpdate}
+              onOverride={handleOverride}
+              relatedIncidents={incidents.filter(i => i.parent_incident_id === detail?.id)}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
