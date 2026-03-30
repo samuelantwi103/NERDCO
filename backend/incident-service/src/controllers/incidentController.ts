@@ -315,8 +315,9 @@ async function updateStatus(req, res) {
     if (!incident) return res.status(404).json({ error: 'not_found', message: 'Incident not found' });
 
     if (req.user.role === 'first_responder') {
-      if (status === 'dispatched') {
-        return res.status(403).json({ error: 'forbidden', message: 'First responders cannot set dispatched status' });
+      // Allow first responders to revert 'in_progress' back to 'dispatched' (Undo)
+      if (status === 'dispatched' && incident.status !== 'in_progress') {
+        return res.status(403).json({ error: 'forbidden', message: 'First responders cannot set dispatched status directly' });
       }
       if (!incident.assigned_unit_id) {
         return res.status(403).json({ error: 'forbidden', message: 'Incident is not assigned to a responder unit' });
