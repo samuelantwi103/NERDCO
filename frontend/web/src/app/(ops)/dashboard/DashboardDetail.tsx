@@ -10,6 +10,7 @@ const useStyles = makeStyles({
     detail: { 
         width: '320px', 
         minWidth: '320px',
+        flexShrink: 0,
         background: 'var(--color-surface)', 
         borderLeft: '1px solid var(--color-border)', 
         overflowY: 'auto', 
@@ -157,6 +158,11 @@ export function DashboardDetail({ detail, vehicles, relatedIncidents, statusBusy
                             style={{ background: 'var(--color-success)', border: 'none' }} onClick={() => onStatusUpdate('resolved')}>
                             Mark Resolved
                         </Button>
+                    )}
+                    {detail._closed && (
+                        <Text style={{ fontStyle: 'italic', color: 'var(--color-text-muted)' }}>
+                            This incident has been resolved. No further actions can be taken.
+                        </Text>
                     )}
                 </div>
 

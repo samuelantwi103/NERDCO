@@ -139,6 +139,11 @@ export default function FieldPage() {
   const myIncident = incidents.find(i =>
     (i.status === 'dispatched' || i.status === 'in_progress') &&
     myVehicleId && (i.assigned_vehicle_id === myVehicleId || i.assigned_unit_id === myVehicleId)
+  );
+
+  const queuedIncidents = incidents.filter(i => 
+    i.status === 'reported' || (i.status === 'dispatched' && i.assigned_vehicle_id !== myVehicleId && i.assigned_unit_id !== myVehicleId)
+  );
 
   if (!mounted) return null;
   if (!user || user.role !== 'first_responder') return null;

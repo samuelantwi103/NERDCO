@@ -8,6 +8,7 @@ const useStyles = makeStyles({
   queue: {
     width: '320px',
     minWidth: '320px',
+    flexShrink: 0,
     background: 'var(--color-surface)',
     borderRight: '1px solid var(--color-border)',
     display: 'flex',
