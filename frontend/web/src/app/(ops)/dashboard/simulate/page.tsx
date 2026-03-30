@@ -392,7 +392,7 @@ export default function SimulatePage() {
         <DashboardMap
           incidents={incidents}
           vehicles={liveVehicles}
-          selectedId={selectedIncidentId || null}
+          selectedId={null}
           onSelect={(id) => { if (phase === 'idle') setSelectedIncidentId(id); }}
         />
       </div>

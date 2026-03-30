@@ -100,7 +100,7 @@ async function updateUser(req, res) {
 
     // Role-based access control for editing
     if (req.user.role === 'org_admin') {
-      if (existing.org_id && existing.org_id !== req.user.org) {
+      if (existing.organization_id && existing.organization_id !== req.user.org) {
         return res.status(403).json({ error: 'forbidden', message: 'Cannot edit users outside your organisation' });
       }
       if (role === 'system_admin') {
@@ -116,7 +116,7 @@ async function updateUser(req, res) {
       name: name !== undefined ? name : existing.name,
       role: role !== undefined ? role : existing.role,
       is_active: is_active !== undefined ? is_active : existing.is_active,
-      organizationId: organization_id !== undefined ? organization_id : existing.org_id
+      organizationId: organization_id !== undefined ? organization_id : existing.organization_id
     };
 
     const updatedUser = await userRepo.update(updates);      

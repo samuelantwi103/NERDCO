@@ -55,7 +55,7 @@ function DashboardContent() {
       />
       <DashboardMap
         incidents={selectedId && detail ? incidents.filter(i => i.id === selectedId || i.parent_incident_id === detail.id) : incidents}
-        vehicles={selectedId && detail ? vehicles.filter(v => v.id === detail.assigned_unit_id) : vehicles}
+        vehicles={vehicles}
         selectedId={selectedId}
         onSelect={selectIncident}
         hidePOIs={true}

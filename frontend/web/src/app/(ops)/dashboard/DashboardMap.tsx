@@ -258,8 +258,9 @@ export const DashboardMap = ({ incidents, vehicles, selectedId, onSelect, myLoca
     const linkedVehicleIds: Set<string> = new Set();
     if (selectedId) {
       incidents.forEach(i => {
-        if ((i.id === selectedId || i.parent_incident_id === selectedId) && i.assigned_vehicle_id) {
-          linkedVehicleIds.add(i.assigned_vehicle_id);
+        const vid = i.assigned_unit_id || i.assigned_vehicle_id;
+        if ((i.id === selectedId || i.parent_incident_id === selectedId) && vid) {
+          linkedVehicleIds.add(vid);
         }
       });
     }

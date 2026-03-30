@@ -32,7 +32,7 @@ export function useDashboardState(token: string, notify?: { success: (title: str
     } catch (e) {
       // Intentionally swallow
     }
-  }, POLLING.ANALYTICS);
+  }, POLLING.DASHBOARD);
 
   const selectIncident = useCallback(async (id: string) => {
     setSelectedId(id);
