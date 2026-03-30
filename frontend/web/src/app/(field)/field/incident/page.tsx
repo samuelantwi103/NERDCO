@@ -276,10 +276,6 @@ function FieldIncidentContent() {
         mapId: 'DEMO_MAP_ID',
         disableDefaultUI: true,
         zoomControl: false,
-        styles: [
-          { featureType: 'poi' as const,     elementType: 'labels' as const, stylers: [{ visibility: 'off' }] },
-          { featureType: 'transit' as const, elementType: 'labels' as const, stylers: [{ visibility: 'off' }] },
-        ],
       });
       map.addListener('click', () => dismissInfoPopup(popupRef));
       mapRef.current = map;

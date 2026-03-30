@@ -139,12 +139,6 @@ export default function FieldPage() {
   const myIncident = incidents.find(i =>
     (i.status === 'dispatched' || i.status === 'in_progress') &&
     myVehicleId && (i.assigned_vehicle_id === myVehicleId || i.assigned_unit_id === myVehicleId)
-  ) ?? incidents.find(i =>
-    // Fallback: any active incident if vehicle assignment not determined yet
-    (i.status === 'dispatched' || i.status === 'in_progress') && !myVehicleId
-  ) ?? null;
-
-  const queuedIncidents = incidents.filter(i => i.status === 'created');
 
   if (!mounted) return null;
   if (!user || user.role !== 'first_responder') return null;

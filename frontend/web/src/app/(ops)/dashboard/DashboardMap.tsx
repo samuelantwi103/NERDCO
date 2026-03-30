@@ -142,8 +142,8 @@ export const DashboardMap = ({ incidents, vehicles, selectedId, onSelect, myLoca
     }
   });
 
-  // Only render top-level (non-child) incidents
-  const topLevelIncidents = incidents.filter(i => !i.parent_incident_id);
+  // Only render top-level (non-child) incidents, OR child incidents whose parent is not loaded
+  const topLevelIncidents = incidents.filter(i => !i.parent_incident_id || !incidents.some(p => p.id === i.parent_incident_id));
 
   // Init map
   useEffect(() => {
