@@ -8,3 +8,4 @@
 /backend/tracking-service/dist
 # /backend/scripts
 /node_modules
+*.md
