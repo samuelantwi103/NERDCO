@@ -50,7 +50,10 @@ async function createUser(req, res) {
       orgName = org?.name;
     }
 
-    await sendWelcomeEmail(email, name, tempPassword);
+    // Send welcome email — non-fatal, never block or crash user creation
+    sendWelcomeEmail(email, name, tempPassword).catch((mailErr: any) => {
+      console.warn('[createUser] Welcome email failed (non-fatal):', mailErr?.message);
+    });
 
     res.status(201).json({
       user: {
