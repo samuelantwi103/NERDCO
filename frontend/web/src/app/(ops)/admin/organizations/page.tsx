@@ -20,6 +20,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { loadGoogleMaps } from '@/lib/maps/loader';
 import { usePagination } from '@/lib/hooks/usePagination';
 import { PaginationBar } from '@/components/ui/PaginationBar';
+import { makeFacilityPin } from '@/app/(ops)/dashboard/DashboardMap';
 
 const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
