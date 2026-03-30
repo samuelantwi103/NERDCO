@@ -625,6 +625,7 @@ export default function SimulatePage() {
           onSelect={(id) => { if (phase === 'idle') setSelectedIncidentId(id); }}
           simulationPath={routePath}
           hidePOIs={true}
+          disableAutoZoom={phase !== 'idle'}
         />
       </div>
     </div>

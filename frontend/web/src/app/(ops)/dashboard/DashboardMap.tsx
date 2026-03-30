@@ -194,12 +194,14 @@ interface MapProps {
   enableRouting?: boolean;
   /** Simulation route path — draws an animated orange polyline when provided */
   simulationPath?: Array<{ lat: number; lng: number }>;
+  /** When true, disables all auto-zoom/pan (use during active simulation) */
+  disableAutoZoom?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────
 export const DashboardMap = ({
   incidents, vehicles, selectedId, onSelect,
-  facilities = [], myLocation, hidePOIs, enableRouting, simulationPath,
+  facilities = [], myLocation, hidePOIs, enableRouting, simulationPath, disableAutoZoom,
 }: MapProps) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef          = useRef<google.maps.Map | null>(null);
@@ -210,8 +212,9 @@ export const DashboardMap = ({
   const fieldPolyRef    = useRef<google.maps.Polyline | null>(null);
   const routeLinesRef   = useRef<google.maps.Polyline[]>([]);
   const cachedRoutesRef = useRef<Record<string, google.maps.LatLngLiteral[]>>({});
-  const simPolyRef      = useRef<google.maps.Polyline | null>(null);
-  const popupRef        = useRef<HTMLElement | null>(null);
+  const simPolyRef         = useRef<google.maps.Polyline | null>(null);
+  const popupRef           = useRef<HTMLElement | null>(null);
+  const userInteractedRef  = useRef(false); // set true on any user drag/zoom — suppresses auto-pan
   const [mapReady, setMapReady] = useState(false);
 
   // Child-count index for selected group or all
@@ -246,6 +249,9 @@ export const DashboardMap = ({
           onSelect('');
         }
       });
+      // Track user interaction — suppress auto-zoom after first gesture
+      map.addListener('dragstart', () => { userInteractedRef.current = true; });
+      map.addListener('zoom_changed', () => { userInteractedRef.current = true; });
       // Field-view routing polyline
       fieldPolyRef.current = new google.maps.Polyline({
         map, path: [], geodesic: true,
@@ -267,10 +273,10 @@ export const DashboardMap = ({
     });
   }, [hidePOIs]);
 
-  // ── Pan to selected incident ──────────────────────────────────────────
+  // ── Pan to selected incident (only if user hasn't interacted) ───────────
   const prevSelectedIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current || disableAutoZoom || userInteractedRef.current) return;
     if (selectedId && selectedId !== prevSelectedIdRef.current) {
       const inc = incidents.find(i => i.id === selectedId || i.parent_incident_id === selectedId);
       if (inc) {
@@ -282,7 +288,7 @@ export const DashboardMap = ({
       mapRef.current.panTo(myLocation); mapRef.current.setZoom(14);
       prevSelectedIdRef.current = null;
     }
-  }, [selectedId, incidents, myLocation?.lat, myLocation?.lng]);
+  }, [selectedId, incidents, myLocation?.lat, myLocation?.lng, disableAutoZoom]);
 
   // ── Incident markers ─────────────────────────────────────────────────
   useEffect(() => {
@@ -550,15 +556,24 @@ export const DashboardMap = ({
   }, [myLocation, selectedId, enableRouting, mapReady, incidents]);
 
   // ── Simulation route polyline ────────────────────────────────────────
+  const simPathInitializedRef = useRef(false);
   useEffect(() => {
     if (!mapReady || !simPolyRef.current) return;
     simPolyRef.current.setPath(simulationPath ?? []);
-    if (simulationPath && simulationPath.length > 1 && mapRef.current) {
+    // Only fit bounds on the very first time a simulation path is set,
+    // and never if the user has already interacted with the map.
+    if (
+      simulationPath && simulationPath.length > 1 && mapRef.current &&
+      !disableAutoZoom && !userInteractedRef.current && !simPathInitializedRef.current
+    ) {
       const bounds = new google.maps.LatLngBounds();
       simulationPath.forEach(p => bounds.extend(p));
       mapRef.current.fitBounds(bounds, 80);
+      simPathInitializedRef.current = true;
     }
-  }, [simulationPath, mapReady]);
+    // Reset the init flag when path is cleared
+    if (!simulationPath || simulationPath.length === 0) simPathInitializedRef.current = false;
+  }, [simulationPath, mapReady, disableAutoZoom]);
 
   // ── Render ────────────────────────────────────────────────────────────
   return (
