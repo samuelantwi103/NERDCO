@@ -558,14 +558,31 @@ export default function SimulatePage() {
                   <Text style={{ color: 'var(--color-text-muted)', fontSize: '13px' }}>No active simulations.</Text>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {activeGlobalSims.map((sim, i) => {
+                  {activeGlobalSims.map((sim, i) => {
                       const veh = vehicles.find(v => v.id === sim.vehicleId);
+                      const inc = incidents.find(x => x.id === sim.incidentId);
+                      const incStatus = inc?.status ?? null;
+                      const isAtScene = sim.phase === 'at_scene';
+                      const isResolved = incStatus === 'resolved' || incStatus === 'closed';
+
                       return (
-                        <div key={i} style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div key={i} style={{ background: 'var(--color-surface)', border: `1px solid ${isAtScene ? 'var(--color-accent)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          {/* Header row */}
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <Text weight="semibold" style={{ fontSize: '13px' }}>{veh?.license_plate || sim.vehicleId.slice(0, 8)}</Text>
-                            <Badge appearance="filled" color="warning" size="small">{sim.phase.replace('_', ' ')}</Badge>
+                            <Badge appearance="filled" color={sim.phase === 'at_scene' ? 'severe' : 'warning'} size="small">{sim.phase.replace(/_/g, ' ')}</Badge>
                           </div>
+
+                          {/* Incident info */}
+                          {inc && (
+                            <div style={{ fontSize: '12px', color: 'var(--color-text-muted)', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-accent)', display: 'inline-block', flexShrink: 0 }} />
+                              <span>{inc.location_name ?? inc.address ?? 'Incident'}</span>
+                              {incStatus && <Badge size="extra-small" appearance="outline">{incStatus.replace(/_/g, ' ')}</Badge>}
+                            </div>
+                          )}
+
+                          {/* Progress bar */}
                           <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                               <Text style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Progress</Text>
@@ -575,9 +592,108 @@ export default function SimulatePage() {
                               <div className={styles.progressFill} style={{ width: `${(sim.currentStep / sim.totalSteps) * 100}%` }} />
                             </div>
                           </div>
-                          <Button size="small" appearance="secondary" onClick={async () => {
-                            await stopSimulationRun(token, sim.vehicleId);
-                          }}>Stop Run</Button>
+
+                          {/* ── Responder Actions (mirror of mobile incident_screen) ── */}
+                          {!isResolved && inc && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              {/* dispatched → Mark On Scene */}
+                              {incStatus === 'dispatched' && (
+                                <Button
+                                  appearance="primary"
+                                  size="small"
+                                  icon={<CheckmarkCircleRegular />}
+                                  onClick={async () => {
+                                    await updateIncidentStatus(token, sim.incidentId, 'in_progress');
+                                  }}
+                                  style={{ background: '#1a1a1a', border: 'none' }}
+                                >
+                                  Mark On Scene →
+                                </Button>
+                              )}
+
+                              {/* at_scene (paused) → Resume Journey */}
+                              {sim.phase === 'at_scene' && (
+                                <Button
+                                  appearance="primary"
+                                  size="small"
+                                  icon={<ArrowForwardRegular />}
+                                  onClick={async () => {
+                                    await resumeSimulationRun(token, sim.vehicleId);
+                                  }}
+                                >
+                                  Resume Journey
+                                </Button>
+                              )}
+
+                              {/* in_progress → Call Backup + Mark Resolved */}
+                              {incStatus === 'in_progress' && (
+                                <div style={{ display: 'flex', gap: '6px' }}>
+                                  <Button
+                                    appearance="outline"
+                                    size="small"
+                                    icon={<AddCircleRegular />}
+                                    style={{ flex: 1 }}
+                                    onClick={async () => {
+                                      const type = window.prompt('Backup type: medical / fire / crime');
+                                      if (type) await apiRequestSupport(token, sim.incidentId, type);
+                                    }}
+                                  >
+                                    Call Backup
+                                  </Button>
+                                  <Button
+                                    appearance="primary"
+                                    size="small"
+                                    icon={<CheckmarkCircleRegular />}
+                                    style={{ flex: 1, background: '#107C10', border: 'none' }}
+                                    onClick={async () => {
+                                      await updateIncidentStatus(token, sim.incidentId, 'resolved');
+                                    }}
+                                  >
+                                    Resolved
+                                  </Button>
+                                </div>
+                              )}
+
+                              {/* in_progress → Undo (not on scene yet) */}
+                              {incStatus === 'in_progress' && (
+                                <Button
+                                  appearance="subtle"
+                                  size="small"
+                                  onClick={async () => {
+                                    await updateIncidentStatus(token, sim.incidentId, 'dispatched');
+                                  }}
+                                  style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}
+                                >
+                                  Not on scene yet? Undo
+                                </Button>
+                              )}
+
+                              {/* Request Backup (dispatched or in_progress) */}
+                              {(incStatus === 'dispatched' || incStatus === 'in_progress') && (
+                                <Button
+                                  appearance="outline"
+                                  size="small"
+                                  icon={<AddCircleRegular />}
+                                  onClick={async () => {
+                                    const type = window.prompt('Backup type: medical / fire / crime');
+                                    if (type) await apiRequestSupport(token, sim.incidentId, type);
+                                  }}
+                                >
+                                  Request Backup
+                                </Button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Stop run button always available */}
+                          <Button
+                            size="small"
+                            appearance="secondary"
+                            icon={<StopRegular />}
+                            onClick={async () => { await stopSimulationRun(token, sim.vehicleId); }}
+                          >
+                            Stop Run
+                          </Button>
                         </div>
                       );
                     })}
