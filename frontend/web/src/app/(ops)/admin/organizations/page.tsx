@@ -199,8 +199,11 @@ export default function OrganizationsPage() {
             position: { lat: parseFloat(org.latitude), lng: parseFloat(org.longitude) },
             title: org.name,
             content: makeFacilityPin(org.type, org.name, false),
+          }) as any;
+          markersRef.current.push(m);
+        }
       });
-      
+
       // Auto-fit bounds
       if (orgs.length > 0) {
         const bounds = new window.google.maps.LatLngBounds();
