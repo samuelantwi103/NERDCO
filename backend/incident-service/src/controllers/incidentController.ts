@@ -213,6 +213,11 @@ async function create(req, res) {
         if (supportUnit) {
           await incidentRepo.assignUnit({ id: childId, unitId: supportUnit.id, unitType: vehicleType, destinationHospitalId: destHospital?.id || null, destinationHospitalName: destHospital?.name || null });
           await incidentRepo.logStatusChange({ incidentId: childId, oldStatus: 'created', newStatus: 'dispatched', changedBy: req.user.sub, notes: `MCI batch auto-dispatch (${vehicleType})` });
+
+          if (destHospital && (vehicleType === 'ambulance' || vehicleType.includes('medical'))) {
+            adjustHospitalCapacity(destHospital.id, -1).catch(() => {});
+          }
+
           publish('incident.dispatched', { incident_id: childId, incident_type, latitude, longitude, assigned_unit_id: supportUnit.id, assigned_unit_type: vehicleType, distance_km: +supportUnit.distance_km.toFixed(2), dispatched_at: new Date().toISOString() });
           childIncidents.push({ id: childId, unitId: supportUnit.id, unitType: vehicleType });
         }
@@ -468,7 +473,21 @@ async function requestSupport(req, res) {
       return res.status(503).json({ error: 'no_vehicles', message: 'All matched support units became unavailable. Try again.' });
     }
 
-    await incidentRepo.assignUnit({ id: childId, unitId: supportUnit.id, unitType: support_type });
+    const destId = support_type === 'ambulance' ? incident.destination_hospital_id : null;
+    const destName = support_type === 'ambulance' ? incident.destination_hospital_name : null;
+
+    await incidentRepo.assignUnit({ 
+      id: childId, 
+      unitId: supportUnit.id, 
+      unitType: support_type,
+      destinationHospitalId: destId || null,
+      destinationHospitalName: destName || null,
+    });
+
+    if (destId) {
+      adjustHospitalCapacity(destId, -1).catch(() => {});
+    }
+
     await incidentRepo.logStatusChange({
       incidentId: childId,
       oldStatus: 'created',

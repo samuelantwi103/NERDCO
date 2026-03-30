@@ -213,12 +213,20 @@ export const DashboardMap = ({
   const popupRef        = useRef<HTMLElement | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
-  // Child-count index
+  // Child-count index for selected group or all
+  const filteredIncidents = selectedId
+    ? incidents.filter(i => {
+        const sel = incidents.find(x => x.id === selectedId);
+        const pId = sel?.parent_incident_id || selectedId;
+        return i.id === pId || i.parent_incident_id === pId;
+      })
+    : incidents;
+
   const childCounts = new Map<string, number>();
-  incidents.forEach(i => {
+  filteredIncidents.forEach(i => {
     if (i.parent_incident_id) childCounts.set(i.parent_incident_id, (childCounts.get(i.parent_incident_id) ?? 0) + 1);
   });
-  const topLevelIncidents = incidents.filter(i => !i.parent_incident_id || !incidents.some(p => p.id === i.parent_incident_id));
+  const topLevelIncidents = filteredIncidents.filter(i => !i.parent_incident_id || !filteredIncidents.some(p => p.id === i.parent_incident_id));
 
   // ── Init map ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -236,6 +244,12 @@ export const DashboardMap = ({
             { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
           ]
         } : {}),
+      });
+      map.addListener('click', () => {
+        if (popupRef.current) {
+          dismissInfoPopup(popupRef);
+          onSelect('');
+        }
       });
       // Field-view routing polyline
       fieldPolyRef.current = new google.maps.Polyline({
@@ -369,10 +383,22 @@ export const DashboardMap = ({
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.google?.maps?.marker) return;
     const map = mapRef.current;
-    const currentIds = new Set(facilities.map(f => f.id));
+
+    let visibleFacilities = facilities;
+    if (selectedId) {
+      const destIds = new Set(
+        incidents
+          .filter(i => i.id === selectedId || i.parent_incident_id === selectedId)
+          .map(i => i.destination_hospital_id)
+          .filter(Boolean)
+      );
+      visibleFacilities = facilities.filter(f => destIds.has(f.id));
+    }
+
+    const currentIds = new Set(visibleFacilities.map(f => f.id));
     facMarkersRef.current.forEach((m, id) => { if (!currentIds.has(id)) { m.map = null; facMarkersRef.current.delete(id); } });
 
-    facilities.forEach(f => {
+    visibleFacilities.forEach(f => {
       const lat = parseFloat(String(f.lat)); const lng = parseFloat(String(f.lng));
       if (isNaN(lat) || isNaN(lng)) return;
       const pin = makeFacilityPin(f.type, f.name, !!f.isMyFacility);
@@ -397,10 +423,10 @@ export const DashboardMap = ({
   }, [facilities, mapReady]);
 
   // ── Route lines for selected incident ────────────────────────────────
-  // Draws:  vehicle → incident  (blue dashed)  when en-route
-  //         incident → hospital (green solid)   when transporting
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
+    const map = mapRef.current;
+    let active = true;
 
     // Clear previous route lines
     routeLinesRef.current.forEach(l => l.setMap(null));
@@ -414,7 +440,7 @@ export const DashboardMap = ({
     const incLng = parseFloat(selectedInc.longitude);
     if (isNaN(incLat) || isNaN(incLng)) return;
 
-    const map = mapRef.current;
+    const svc = new google.maps.DirectionsService();
 
     // All incidents in the group (parent + children)
     const groupIncidents = incidents.filter(i => i.id === selectedId || i.parent_incident_id === selectedId);
@@ -432,53 +458,56 @@ export const DashboardMap = ({
       const isOnSiteOrTransport = status === 'in_progress';
 
       if (isEnRoute) {
-        // Blue dashed line: vehicle → incident
-        const line = new google.maps.Polyline({
-          map,
-          path: [{ lat: vLat, lng: vLng }, { lat: incLat, lng: incLng }],
-          geodesic: true,
-          strokeColor: '#0078D4',
-          strokeOpacity: 0,
-          strokeWeight: 3,
-          icons: [{
-            icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.9, scale: 4 },
-            offset: '0', repeat: '16px',
-          }],
-        });
-        routeLinesRef.current.push(line);
+        // Vehicle → Incident real driving route
+        svc.route(
+          { origin: { lat: vLat, lng: vLng }, destination: { lat: incLat, lng: incLng }, travelMode: google.maps.TravelMode.DRIVING },
+          (result, dirStatus) => {
+            if (!active) return;
+            if (dirStatus === 'OK' && result && mapRef.current) {
+              const line = new google.maps.Polyline({
+                map: mapRef.current,
+                path: result.routes[0].overview_path,
+                geodesic: true, strokeColor: '#0078D4', strokeOpacity: 0.9, strokeWeight: 4,
+              });
+              routeLinesRef.current.push(line);
+            } else {
+              // Fallback
+              const line = new google.maps.Polyline({
+                map: mapRef.current, path: [{ lat: vLat, lng: vLng }, { lat: incLat, lng: incLng }],
+                geodesic: true, strokeColor: '#0078D4', strokeOpacity: 0, strokeWeight: 3, icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.9, scale: 4 }, offset: '0', repeat: '16px' }]
+              });
+              routeLinesRef.current.push(line);
+            }
+          }
+        );
       }
 
-      if (isOnSiteOrTransport) {
-        // Grey dashed line: vehicle → incident (already arrived)
-        const line1 = new google.maps.Polyline({
-          map,
-          path: [{ lat: vLat, lng: vLng }, { lat: incLat, lng: incLng }],
-          geodesic: true, strokeColor: '#797775', strokeOpacity: 0.5, strokeWeight: 2,
-          icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.7, scale: 3 }, offset: '0', repeat: '12px' }],
-        });
-        routeLinesRef.current.push(line1);
-      }
-
-      // Green solid line: incident → hospital (if hospital assigned)
-      if (inc.destination_hospital_id) {
+      if (isOnSiteOrTransport && inc.destination_hospital_id) {
+        // Incident → Hospital real driving route
         const hospital = facilities.find(f => f.id === inc.destination_hospital_id);
         if (hospital) {
           const hLat = parseFloat(String(hospital.lat)); const hLng = parseFloat(String(hospital.lng));
           if (!isNaN(hLat) && !isNaN(hLng)) {
-            const line2 = new google.maps.Polyline({
-              map,
-              path: [{ lat: incLat, lng: incLng }, { lat: hLat, lng: hLng }],
-              geodesic: true, strokeColor: '#107C10', strokeOpacity: 0.9, strokeWeight: 4,
-              icons: [{
-                icon: { path: window.google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillOpacity: 1, strokeOpacity: 1 },
-                offset: '60%',
-              }],
-            });
-            routeLinesRef.current.push(line2);
+            svc.route(
+              { origin: { lat: incLat, lng: incLng }, destination: { lat: hLat, lng: hLng }, travelMode: google.maps.TravelMode.DRIVING },
+              (result, dirStatus) => {
+                if (!active) return;
+                if (dirStatus === 'OK' && result && mapRef.current) {
+                  const line = new google.maps.Polyline({
+                    map: mapRef.current,
+                    path: result.routes[0].overview_path,
+                    geodesic: true, strokeColor: '#107C10', strokeOpacity: 0.9, strokeWeight: 4,
+                  });
+                  routeLinesRef.current.push(line);
+                }
+              }
+            );
           }
         }
       }
     });
+
+    return () => { active = false; };
   }, [selectedId, incidents, vehicles, facilities, mapReady]);
 
   // ── My location marker ────────────────────────────────────────────────
