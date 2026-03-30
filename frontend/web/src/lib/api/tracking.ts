@@ -48,3 +48,17 @@ export async function deleteVehicle(token: string, id: string) {
   const { data } = await axios.delete(`${BASE}/vehicles/${id}`, { headers: headers(token) });
   return data;
 }
+export async function startSimulationRun(token: string, id: string, body: any) {
+  const { data } = await axios.post(`${BASE}/simulations/${id}/start`, body, { headers: headers(token) });
+  return data;
+}
+
+export async function stopSimulationRun(token: string, id: string) {
+  const { data } = await axios.post(`${BASE}/simulations/${id}/stop`, {}, { headers: headers(token) });
+  return data;
+}
+
+export async function getActiveSimulations(token: string) {
+  const { data } = await axios.get(`${BASE}/simulations/active`, { headers: headers(token) });
+  return data.simulations;
+}

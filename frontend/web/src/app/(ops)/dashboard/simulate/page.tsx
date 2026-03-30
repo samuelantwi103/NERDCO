@@ -18,7 +18,7 @@ import {
 } from '@fluentui/react-components';
 import { PlayCircleRegular, StopRegular, ArrowResetRegular, VehicleCarRegular } from '@fluentui/react-icons';
 import { useAuth } from '@/lib/context/AuthContext';
-import { listVehicles, updateVehicleLocation } from '@/lib/api/tracking';
+import { listVehicles, startSimulationRun, stopSimulationRun, getActiveSimulations } from '@/lib/api/tracking';
 import { listOpenIncidents } from '@/lib/api/incidents';
 import { listOrganizations } from '@/lib/api/auth';
 import { loadGoogleMaps } from '@/lib/maps/loader';
@@ -134,10 +134,31 @@ export default function SimulatePage() {
   const [progress,    setProgress]    = useState(0);   // 0-100
   const [statusMsg,   setStatusMsg]   = useState('Select a vehicle and incident to begin.');
   const [liveVehicles, setLiveVehicles] = useState<any[]>([]);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const waypointsRef = useRef<Array<{ lat: number; lng: number }>>([]);
-  const stepRef      = useRef(0);
-  const phaseRef     = useRef<SimPhase>('idle');
+
+  // Periodically check global simulation state
+  useEffect(() => {
+    if (!token) return;
+    const t = setInterval(async () => {
+      try {
+        const sims = await getActiveSimulations(token);
+        if (selectedVehicleId) {
+          const mySim = sims.find((s: any) => s.vehicleId === selectedVehicleId);
+          if (mySim) {
+            setPhase(mySim.phase as SimPhase);
+            setProgress(Math.round((mySim.currentStep / mySim.totalSteps) * 100));
+            setStatusMsg(`Remote execution: ${mySim.currentStep} / ${mySim.totalSteps} steps completed...`);
+            setRoutePath([]);
+          } else if (phase !== 'idle' && phase !== 'done') {
+            setPhase('done');
+            setProgress(100);
+            setStatusMsg('Simulation completed.');
+            setRoutePath([]);
+          }
+        }
+      } catch (err) {}
+    }, 1500);
+    return () => clearInterval(t);
+  }, [token, selectedVehicleId, phase]);
 
   // ── Auth guard ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -196,17 +217,20 @@ export default function SimulatePage() {
     )[0];
   }
 
-  function stopTimer() {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
+  async function stopTimer() {
+    if (!selectedVehicleId) return;
+    try {
+      await stopSimulationRun(token, selectedVehicleId);
+      setPhase('idle');
+      setProgress(0);
+      setStatusMsg('Simulation stopped.');
+    } catch {}
   }
 
   // ── Simulation runner ──────────────────────────────────────────────────
   async function startSimulation() {
     if (!selectedVehicle || !selectedIncident) return;
-    stopTimer();
+    try { await stopSimulationRun(token, selectedVehicle.id); } catch {}
 
     const isMedical = selectedVehicle.vehicle_type === 'ambulance' || selectedVehicle.vehicle_type?.includes('medical');
 
@@ -229,11 +253,10 @@ export default function SimulatePage() {
     }
 
     setPhase('to_incident');
-    phaseRef.current = 'to_incident';
     setProgress(0);
-    setStatusMsg(`Computing route for ${selectedVehicle.license_plate}…`);
+    setStatusMsg(`Offloading path-finding for ${selectedVehicle.license_plate} to backend…`);
 
-    // Ensure Maps API is loaded, then get real driving route
+    // Ensure Maps API is loaded, then get real driving route locally
     await loadGoogleMaps(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '');
     const allWaypoints = await getDrivingRoute(
       { lat: vLat, lng: vLng },
@@ -249,64 +272,28 @@ export default function SimulatePage() {
       if (d < minDist) { minDist = d; splitIdx = idx; }
     });
 
-    const leg1 = allWaypoints.slice(0, splitIdx + 1);
-    const leg2 = allWaypoints.slice(splitIdx);
+    setStatusMsg(`Dispatching waypoint graph. Running headlessly...`);
 
-    // Show ONLY first leg on the map before starting
-    setRoutePath(leg1);
-
-    waypointsRef.current = allWaypoints;
-    stepRef.current = 0;
-    setStatusMsg(`Dispatching ${selectedVehicle.license_plate} → ${selectedIncident.location_name ?? 'incident'}`);
-
-    timerRef.current = setInterval(async () => {
-      const step = stepRef.current;
-      const wps  = waypointsRef.current;
-      if (step >= wps.length) {
-        stopTimer();
-        setPhase('done');
-        phaseRef.current = 'done';
-        setProgress(100);
-        setRoutePath([]);
-        setStatusMsg(`Simulation complete. ${selectedVehicle.license_plate} arrived at ${destinationName}.`);
-        return;
-      }
-
-      const { lat, lng } = wps[step];
-      try {
-        await updateVehicleLocation(token, selectedVehicleId, lat, lng);
-      } catch {
-        // non-fatal — continue animation
-      }
-
-      // Update live vehicle position in local state for instant map refresh
-      setLiveVehicles(prev =>
-        prev.map(v => v.id === selectedVehicleId ? { ...v, latitude: lat, longitude: lng } : v)
-      );
-
-      const newStep = step + 1;
-      stepRef.current = newStep;
-      const pct = Math.round((newStep / wps.length) * 100);
-      setProgress(pct);
-
-      if (newStep >= splitIdx && phaseRef.current === 'to_incident') {
-        const nextPhase = isMedical ? 'to_hospital' : 'to_base';
-        setPhase(nextPhase);
-        phaseRef.current = nextPhase;
-        setRoutePath(leg2); // Only show the return/transport leg
-        setStatusMsg(
-          isMedical
-            ? `${selectedVehicle.license_plate} at incident — transporting to ${destinationName}`
-            : `${selectedVehicle.license_plate} at incident — returning to base`
-        );
-      }
-    }, STEP_INTERVAL_MS);
+    try {
+      await startSimulationRun(token, selectedVehicle.id, {
+        incidentId: selectedIncident.id,
+        isMedical,
+        destinationName,
+        path: allWaypoints,
+        splitIdx,
+        speedMs: STEP_INTERVAL_MS,
+      });
+      // Clear route path since dashboard map takes over immediately
+      setRoutePath([]);
+    } catch (err: any) {
+      setStatusMsg(`Failed to start simulation: ${err?.message}`);
+      setPhase('idle');
+    }
   }
 
-  function resetSimulation() {
-    stopTimer();
+  async function resetSimulation() {
+    await stopTimer();
     setPhase('idle');
-    phaseRef.current = 'idle';
     setProgress(0);
     setRoutePath([]);
     setStatusMsg('Select a vehicle and incident to begin.');
@@ -314,7 +301,7 @@ export default function SimulatePage() {
   }
 
   // ── Clean up on unmount ────────────────────────────────────────────────
-  useEffect(() => () => stopTimer(), []);
+  useEffect(() => {}, []);
 
   if (!user || user.role !== 'system_admin') return null;
 

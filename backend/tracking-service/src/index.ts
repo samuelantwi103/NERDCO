@@ -14,6 +14,7 @@ app.use(cors());
 app.use(express.json());
 
 app.use('/vehicles', require('./routes/vehicles'));
+app.use('/simulations', require('./routes/simulation'));
 
 const specPath = path.join(__dirname, 'docs', 'spec.yaml');
 const spec     = yaml.load(fs.readFileSync(specPath, 'utf8'));
