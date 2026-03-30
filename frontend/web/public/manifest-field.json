@@ -1,0 +1,22 @@
+{
+  "name": "NERDCO Field Responder",
+  "short_name": "Field",
+  "description": "Emergency response interface for field personnel.",
+  "start_url": "/field",
+  "scope": "/field",
+  "display": "standalone",
+  "background_color": "#0a0a0b",
+  "theme_color": "#f44336",
+  "icons": [
+    {
+      "src": "/field-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/field-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
