@@ -50,8 +50,8 @@ function DashboardContent() {
     selectIncident, handleStatusUpdate, handleOverride,
   } = useDashboardState(token, { success: notifySuccess });
 
-  // Build facility list for the map — show all orgs as facility markers
-  const facilities = organizations
+  // Filter data based on user role and organization
+  let visibleFacilities = organizations
     .filter(o => o.latitude && o.longitude)
     .map(o => ({
       id:   o.id,
@@ -60,6 +60,24 @@ function DashboardContent() {
       name: o.name,
       type: o.type ?? o.org_type ?? 'hospital',
     }));
+
+  let visibleVehicles = vehicles;
+  let visibleIncidents = incidents;
+
+  if (user?.role === 'org_admin') {
+    visibleFacilities = visibleFacilities.filter(f => f.id === user.org);
+
+    if (user.org_type === 'ambulance_service') {
+      visibleVehicles = visibleVehicles.filter(v => v.status !== 'available');
+    } else if (user.org_type === 'hospital') {
+      visibleIncidents = visibleIncidents.filter(i => i.destination_facility_id === user.org);
+    }
+  }
+
+  // Handle selected incident filtering for map display
+  if (selectedId && detail) {
+    visibleIncidents = visibleIncidents.filter(i => i.id === selectedId || i.parent_incident_id === detail.id);
+  }
 
   // Auto-select a highlighted incident (e.g. redirected from duplicate detection)
   useEffect(() => {
@@ -111,9 +129,9 @@ function DashboardContent() {
       {/* Map — fills ALL remaining space; detail panel floats over it */}
       <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
         <DashboardMap
-          incidents={selectedId && detail ? incidents.filter(i => i.id === selectedId || i.parent_incident_id === detail.id) : incidents}
-          vehicles={vehicles}
-          facilities={facilities}
+          incidents={visibleIncidents}
+          vehicles={visibleVehicles}
+          facilities={visibleFacilities}
           selectedId={selectedId}
           onSelect={selectIncident}
           hidePOIs={true}
