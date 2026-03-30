@@ -50,3 +50,5 @@ export async function dispatchVehicle(vehicleId: string, authHeader: string, inc
 export async function releaseVehicle(vehicleId: string, authHeader: string): Promise<void> {
   await axios.put(`${TRACKING_URL()}/vehicles/${vehicleId}/status`, { status: 'available' }, {
     headers: serviceHeaders(authHeader),
+  });
+}
