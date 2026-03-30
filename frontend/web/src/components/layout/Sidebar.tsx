@@ -13,6 +13,7 @@ import {
   SignOutRegular,
   MapRegular,
   HeartPulseRegular,
+  PlayCircleRegular,
 } from '@fluentui/react-icons';
 import { useAuth, UserRole } from '@/lib/context/AuthContext';
 
@@ -201,6 +202,12 @@ const OPS_NAV: { section: string; items: NavItem[] }[] = [
     section: 'Insights',
     items: [
       { label: 'Analytics',    href: '/analytics',          Icon: DataBarVerticalRegular },
+    ],
+  },
+  {
+    section: 'Tools',
+    items: [
+      { label: 'Simulate',     href: '/dashboard/simulate', Icon: PlayCircleRegular      },
     ],
   },
   {
