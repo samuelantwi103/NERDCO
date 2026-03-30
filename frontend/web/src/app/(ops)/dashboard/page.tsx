@@ -71,6 +71,8 @@ function DashboardContent() {
       visibleVehicles = visibleVehicles.filter(v => v.status !== 'available');
     } else if (user.org_type === 'hospital') {
       visibleIncidents = visibleIncidents.filter(i => i.destination_facility_id === user.org);
+      const incomingIncidentIds = new Set(visibleIncidents.map(i => i.id));
+      visibleVehicles = visibleVehicles.filter(v => v.current_incident_id && incomingIncidentIds.has(v.current_incident_id));
     }
   }
 
