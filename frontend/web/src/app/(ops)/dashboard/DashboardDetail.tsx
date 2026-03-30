@@ -152,7 +152,7 @@ export function DashboardDetail({ detail, vehicles, relatedIncidents, statusBusy
                 )}
 
                 <div className={styles.actionBar}>
-                    {detail.status === 'dispatched' && (
+                    {(detail.status === 'dispatched' || detail.status === 'in_progress') && (
                         <Button appearance="primary" disabled={statusBusy} icon={statusBusy ? <Spinner size="tiny" /> : <CheckmarkCircleRegular />}
                             style={{ background: 'var(--color-success)', border: 'none' }} onClick={() => onStatusUpdate('resolved')}>
                             Mark Resolved
@@ -160,7 +160,7 @@ export function DashboardDetail({ detail, vehicles, relatedIncidents, statusBusy
                     )}
                 </div>
 
-                {detail.status === 'dispatched' && (
+                {(detail.status === 'dispatched' || detail.status === 'in_progress') && (
                     <div className={styles.unitBox}>
                         <div className={styles.unitBoxHeader}>
                             <div>
