@@ -138,6 +138,10 @@ export default function SimulatePage() {
   const [pastGlobalSims, setPastGlobalSims] = useState<any[]>([]);
   const [panelTab, setPanelTab] = useState<'dispatch' | 'manage'>('dispatch');
   const [mounted, setMounted] = useState(false);
+  
+  // Track geometry
+  const [fullRoutePath, setFullRoutePath] = useState<Array<{ lat: number; lng: number }>>([]);
+  const [routeSplitIdx, setRouteSplitIdx] = useState(0);
 
   useEffect(() => {
     setMounted(true);
@@ -157,11 +161,21 @@ export default function SimulatePage() {
             setPhase(mySim.phase as SimPhase);
             setProgress(Math.round((mySim.currentStep / mySim.totalSteps) * 100));
             setStatusMsg(`Remote execution: ${mySim.currentStep} / ${mySim.totalSteps} steps completed...`);
+            
+            // Constrain map Polyline to the currently active leg
+            if (fullRoutePath.length > 0) {
+              if (mySim.phase === 'to_incident') {
+                setRoutePath(fullRoutePath.slice(0, routeSplitIdx));
+              } else if (mySim.phase === 'to_hospital' || mySim.phase === 'to_base') {
+                setRoutePath(fullRoutePath.slice(routeSplitIdx));
+              }
+            }
           } else if (phase !== 'idle' && phase !== 'done' && phase !== 'starting') {
             setPhase('done');
             setProgress(100);
             setStatusMsg('Simulation completed.');
             setRoutePath([]);
+            setFullRoutePath([]);
           }
         }
       } catch (err) {}
@@ -290,7 +304,9 @@ export default function SimulatePage() {
         splitIdx,
         speedMs: STEP_INTERVAL_MS,
       });
-      setRoutePath(allWaypoints); // Keep route active on map!
+      setFullRoutePath(allWaypoints);
+      setRouteSplitIdx(splitIdx);
+      setRoutePath(allWaypoints.slice(0, splitIdx)); // Show only first leg initially
     } catch (err: any) {
       setStatusMsg(`Failed to start simulation: ${err?.message}`);
       setPhase('idle');
@@ -302,6 +318,7 @@ export default function SimulatePage() {
     setPhase('idle');
     setProgress(0);
     setRoutePath([]);
+    setFullRoutePath([]);
     setStatusMsg('Select a vehicle and incident to begin.');
     loadData();
   }
