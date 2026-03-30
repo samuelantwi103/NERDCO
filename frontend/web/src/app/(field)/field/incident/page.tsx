@@ -39,7 +39,7 @@ const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
 function makeBackupPin(): HTMLElement {
   const el = document.createElement('div');
-  el.style.cssText = width:13px;height:13px;border-radius:50%;background:#0097A7;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);;
+  el.style.cssText = `width:13px;height:13px;border-radius:50%;background:#0097A7;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);`;
   return el;
 }
 
