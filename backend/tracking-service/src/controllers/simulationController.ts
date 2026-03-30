@@ -18,6 +18,11 @@ export interface SimulationState {
 const activeSimulations = new Map<string, SimulationState>();
 const finishedSimulations: any[] = [];
 
+/** Returns true if this vehicle is currently being driven by the headless simulation engine */
+export function isVehicleUnderSimulation(vehicleId: string): boolean {
+  return activeSimulations.has(vehicleId);
+}
+
 function recordFinished(state: SimulationState, reason: 'completed' | 'stopped') {
   finishedSimulations.unshift({
     vehicleId: state.vehicleId,

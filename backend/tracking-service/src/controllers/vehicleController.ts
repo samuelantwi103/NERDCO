@@ -2,6 +2,7 @@
 const vehicleRepo = require('../repositories/vehicleRepo');
 const { publish } = require('../utils/publisher');
 const { broadcast } = require('../websocket/wsServer');
+const { isVehicleUnderSimulation } = require('./simulationController');
 
 const VALID_TYPES   = ['ambulance', 'police_car', 'fire_truck'];
 const VALID_STATUSES = ['available', 'dispatched', 'unavailable'];
@@ -89,6 +90,11 @@ async function updateLocation(req, res) {
     if (!existing) return res.status(404).json({ error: 'not_found', message: 'Vehicle not found' });
     if (!canManageVehicle(req.user, existing)) {
       return res.status(403).json({ error: 'forbidden', message: 'You can only update your assigned vehicle' });
+    }
+
+    // Block driver GPS overrides while a simulation is actively controlling this vehicle
+    if (isVehicleUnderSimulation(req.params.id)) {
+      return res.status(409).json({ error: 'simulation_active', message: 'Vehicle is under simulation control — GPS updates from the device are locked.' });
     }
 
     const vehicle = await vehicleRepo.updateLocation({ id: req.params.id, latitude, longitude });
