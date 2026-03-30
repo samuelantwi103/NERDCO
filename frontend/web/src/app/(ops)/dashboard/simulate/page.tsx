@@ -12,7 +12,6 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import {
 import { Text, Button, Spinner, Dropdown, Option, makeStyles, Badge, Divider, Field, TabList, Tab, Select } from '@fluentui/react-components';
 import { PlayCircleRegular, StopRegular, ArrowResetRegular, VehicleCarRegular, CheckmarkCircleRegular, AddCircleRegular, ArrowForwardRegular } from '@fluentui/react-icons';
 import { useAuth } from '@/lib/context/AuthContext';
