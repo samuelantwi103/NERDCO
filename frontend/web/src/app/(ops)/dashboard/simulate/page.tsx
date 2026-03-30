@@ -197,10 +197,8 @@ export default function SimulatePage() {
 
   // ── Fast polling to refresh live vehicle positions ─────────────────────
   useAutoRefresh(async () => {
-    if (phase === 'idle' || phase === 'done') {
-      const v = await listVehicles(token).catch(() => [] as any[]);
-      setLiveVehicles(v);
-    }
+    const v = await listVehicles(token).catch(() => [] as any[]);
+    setLiveVehicles(v);
   }, POLLING.SIMULATION);
 
   // ── Helpers ────────────────────────────────────────────────────────────
