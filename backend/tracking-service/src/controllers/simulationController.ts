@@ -11,7 +11,7 @@ export interface SimulationState {
   splitIdx: number;
   currentStep: number;
   intervalMs: number;
-  phase: 'to_incident' | 'to_hospital' | 'to_base';
+  phase: 'to_incident' | 'at_scene' | 'to_hospital' | 'to_base';
   timer?: NodeJS.Timeout;
 }
 
@@ -60,23 +60,31 @@ async function startSimulation(req: any, res: any) {
     phase: 'to_incident'
   };
 
+  startTimer(state);
+
+  activeSimulations.set(vehicleId, state);
+
+  res.status(200).json({ message: 'Simulation started', vehicleId });
+}
+
+function startTimer(state: SimulationState) {
   state.timer = setInterval(async () => {
     state.currentStep++;
     
     if (state.currentStep >= state.waypoints.length) {
       clearInterval(state.timer);
       recordFinished(state, 'completed');
-      activeSimulations.delete(vehicleId);
+      activeSimulations.delete(state.vehicleId);
       return;
     }
 
     const wpt = state.waypoints[state.currentStep];
 
     try {
-      const vehicle = await vehicleRepo.updateLocation({ id: vehicleId, latitude: wpt.lat, longitude: wpt.lng });
+      const vehicle = await vehicleRepo.updateLocation({ id: state.vehicleId, latitude: wpt.lat, longitude: wpt.lng });
       if (vehicle) {
         const recorded_at = new Date().toISOString();
-        await vehicleRepo.saveLocationHistory({ vehicleId, latitude: wpt.lat, longitude: wpt.lng, recordedAt: recorded_at });
+        await vehicleRepo.saveLocationHistory({ vehicleId: state.vehicleId, latitude: wpt.lat, longitude: wpt.lng, recordedAt: recorded_at });
         const payload = { vehicle_id: vehicle.id, vehicle_type: vehicle.vehicle_type, status: vehicle.status, latitude: wpt.lat, longitude: wpt.lng, recorded_at };
         publish('vehicle.location.updated', payload);
         broadcast({ type: 'vehicle.location.updated', payload });
@@ -86,14 +94,30 @@ async function startSimulation(req: any, res: any) {
     }
 
     if (state.currentStep >= state.splitIdx && state.phase === 'to_incident') {
-      state.phase = state.isMedical ? 'to_hospital' : 'to_base';
+      state.phase = 'at_scene';
+      clearInterval(state.timer);
     }
 
-  }, speedMs);
+  }, state.intervalMs);
+}
 
-  activeSimulations.set(vehicleId, state);
+async function resumeSimulation(req: any, res: any) {
+  if (req.user.role !== 'system_admin') return res.status(403).json({ error: 'forbidden' });
+  const { id: vehicleId } = req.params;
 
-  res.status(200).json({ message: 'Simulation started', vehicleId });
+  if (!activeSimulations.has(vehicleId)) {
+    return res.status(404).json({ error: 'not_found', message: 'Simulation not active' });
+  }
+
+  const state = activeSimulations.get(vehicleId)!;
+  if (state.phase !== 'at_scene') {
+    return res.status(400).json({ error: 'invalid_state', message: 'Simulation is not paused at scene' });
+  }
+
+  state.phase = state.isMedical ? 'to_hospital' : 'to_base';
+  startTimer(state);
+
+  res.status(200).json({ message: 'Simulation resumed', vehicleId });
 }
 
 async function stopSimulation(req: any, res: any) {
@@ -127,4 +151,4 @@ async function listActive(req: any, res: any) {
   res.status(200).json({ simulations: payload, past: finishedSimulations });
 }
 
-module.exports = { startSimulation, stopSimulation, listActive };
+module.exports = { startSimulation, stopSimulation, listActive, resumeSimulation };

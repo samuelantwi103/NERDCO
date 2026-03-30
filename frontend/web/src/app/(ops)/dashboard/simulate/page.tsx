@@ -18,8 +18,8 @@ import {
 } from '@fluentui/react-components';
 import { PlayCircleRegular, StopRegular, ArrowResetRegular, VehicleCarRegular } from '@fluentui/react-icons';
 import { useAuth } from '@/lib/context/AuthContext';
-import { listVehicles, startSimulationRun, stopSimulationRun, getActiveSimulations } from '@/lib/api/tracking';
-import { listOpenIncidents } from '@/lib/api/incidents';
+import { listVehicles, startSimulationRun, stopSimulationRun, getActiveSimulations, resumeSimulationRun } from '@/lib/api/tracking';
+import { listOpenIncidents, updateIncidentStatus, requestSupport as apiRequestSupport } from '@/lib/api/incidents';
 import { listOrganizations } from '@/lib/api/auth';
 import { loadGoogleMaps } from '@/lib/maps/loader';
 import { DashboardMap, type Facility } from '@/app/(ops)/dashboard/DashboardMap';
@@ -84,7 +84,7 @@ async function getDrivingRoute(
   });
 }
 
-type SimPhase = 'idle' | 'starting' | 'to_incident' | 'to_hospital' | 'to_base' | 'done';
+type SimPhase = 'idle' | 'starting' | 'to_incident' | 'at_scene' | 'to_hospital' | 'to_base' | 'done';
 
 const STEP_INTERVAL_MS = 1_000; // push a location update every 1 second
 const STEPS_PER_LEG    = 20;    // 20 steps × 1 s = ~20 s per leg
@@ -166,6 +166,8 @@ export default function SimulatePage() {
             if (fullRoutePath.length > 0) {
               if (mySim.phase === 'to_incident') {
                 setRoutePath(fullRoutePath.slice(0, routeSplitIdx));
+              } else if (mySim.phase === 'at_scene') {
+                setRoutePath([]); // Paused, no moving path necessary
               } else if (mySim.phase === 'to_hospital' || mySim.phase === 'to_base') {
                 setRoutePath(fullRoutePath.slice(routeSplitIdx));
               }
@@ -333,6 +335,7 @@ export default function SimulatePage() {
     idle:        'Idle',
     starting:    'Starting',
     to_incident: 'En Route → Incident',
+    at_scene:    'At Scene (Paused)',
     to_hospital: 'En Route → Hospital',
     to_base:     'En Route → Base',
     done:        'Complete',
@@ -341,6 +344,7 @@ export default function SimulatePage() {
     idle:        'var(--color-text-muted)',
     starting:    'var(--color-brand)',
     to_incident: 'var(--color-dispatched)',
+    at_scene:    'var(--color-warning)',
     to_hospital: 'var(--color-in-progress)',
     to_base:     'var(--color-in-progress)',
     done:        'var(--color-available)',

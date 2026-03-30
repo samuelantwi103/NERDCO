@@ -7,6 +7,7 @@ router.use(verifyJwt);
 
 router.post('/:id/start', ctrl.startSimulation);
 router.post('/:id/stop', ctrl.stopSimulation);
+router.post('/:id/resume', ctrl.resumeSimulation);
 router.get('/active', ctrl.listActive);
 
 module.exports = router;
