@@ -13,7 +13,7 @@ import { listVehicles } from '@/lib/api/tracking';
 import { loadGoogleMaps } from '@/lib/maps/loader';
 import { consumeMapLoad } from '@/lib/maps/quota';
 import { showInfoPopup, dismissInfoPopup } from '@/lib/maps/infoPopup';
-import { makeIncidentPin, makeMyLocationPin } from '@/app/(ops)/dashboard/DashboardMap';
+import { makeIncidentPin, makeMyLocationPin, INCIDENT_COLOR } from '@/app/(ops)/dashboard/DashboardMap';
 import { IncidentTypeChip }    from '@/components/IncidentTypeChip';
 import { IncidentStatusBadge } from '@/components/StatusBadge';
 import { ErrorState } from '@/components/ui/ErrorState';
