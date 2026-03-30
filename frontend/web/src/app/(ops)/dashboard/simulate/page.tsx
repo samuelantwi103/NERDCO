@@ -137,6 +137,11 @@ export default function SimulatePage() {
   const [activeGlobalSims, setActiveGlobalSims] = useState<any[]>([]);
   const [pastGlobalSims, setPastGlobalSims] = useState<any[]>([]);
   const [panelTab, setPanelTab] = useState<'dispatch' | 'manage'>('dispatch');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Periodically check global simulation state
   useEffect(() => {
@@ -306,6 +311,7 @@ export default function SimulatePage() {
   // ── Clean up on unmount ────────────────────────────────────────────────
   useEffect(() => {}, []);
 
+  if (!mounted) return null;
   if (!user || user.role !== 'system_admin') return null;
 
   const phaseLabel: Record<SimPhase, string> = {
@@ -468,7 +474,7 @@ export default function SimulatePage() {
               </Text>
             </>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <>
               <div>
                 <Text weight="semibold" style={{ display: 'block', marginBottom: '8px' }}>
                   Active Runs ({activeGlobalSims.length})
@@ -529,7 +535,7 @@ export default function SimulatePage() {
                   </div>
                 )}
               </div>
-            </div>
+            </>
           )}
         </div>
       </aside>
