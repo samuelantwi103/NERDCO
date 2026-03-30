@@ -13,10 +13,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Text, Button, Spinner, Dropdown, Option, makeStyles,
-  Badge, Divider, Field, TabList, Tab
-} from '@fluentui/react-components';
-import { PlayCircleRegular, StopRegular, ArrowResetRegular, VehicleCarRegular } from '@fluentui/react-icons';
+import { Text, Button, Spinner, Dropdown, Option, makeStyles, Badge, Divider, Field, TabList, Tab, Select } from '@fluentui/react-components';
+import { PlayCircleRegular, StopRegular, ArrowResetRegular, VehicleCarRegular, CheckmarkCircleRegular, AddCircleRegular, ArrowForwardRegular } from '@fluentui/react-icons';
 import { useAuth } from '@/lib/context/AuthContext';
 import { listVehicles, startSimulationRun, stopSimulationRun, getActiveSimulations, resumeSimulationRun } from '@/lib/api/tracking';
 import { listOpenIncidents, updateIncidentStatus, requestSupport as apiRequestSupport } from '@/lib/api/incidents';
@@ -325,6 +323,37 @@ export default function SimulatePage() {
     loadData();
   }
 
+  // ── Responder Mock Actions ─────────────────────────────────────────────
+  async function markOnScene() {
+    if (!selectedIncidentId) return;
+    try {
+      await updateIncidentStatus(token, selectedIncidentId, 'in_progress', 'Unit marked on-scene via simulation');
+      setStatusMsg('Marked on scene successfully.');
+    } catch (err: any) {
+      setStatusMsg(`Failed to mark on scene: ${err?.message}`);
+    }
+  }
+
+  async function requestBackup(type: string) {
+    if (!selectedIncidentId) return;
+    try {
+      await apiRequestSupport(token, selectedIncidentId, { support_type: type, notes: 'Requested via simulation' });
+      setStatusMsg(`${type.replace('_', ' ')} backup requested.`);
+    } catch (err: any) {
+      setStatusMsg(`Backup failed: ${err?.message}`);
+    }
+  }
+
+  async function resumeSimulation() {
+    if (!selectedVehicleId) return;
+    try {
+      await resumeSimulationRun(token, selectedVehicleId);
+      setStatusMsg('Resuming routing to hospital/base...');
+    } catch (err: any) {
+      setStatusMsg(`Resume failed: ${err?.message}`);
+    }
+  }
+
   // ── Clean up on unmount ────────────────────────────────────────────────
   useEffect(() => {}, []);
 
@@ -441,7 +470,7 @@ export default function SimulatePage() {
               </div>
 
               {/* Action buttons */}
-              <div className={styles.actionRow}>
+              <div className={styles.actionRow} style={phase === 'at_scene' ? { flexDirection: 'column', gap: '8px' } : undefined}>
                 {phase === 'idle' || phase === 'done' ? (
                   <Button
                     appearance="primary"
@@ -452,23 +481,49 @@ export default function SimulatePage() {
                   >
                     {phase === 'done' ? 'Run Again' : 'Start Simulation'}
                   </Button>
+                ) : phase === 'at_scene' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ padding: '12px', background: 'var(--color-surface)', border: '1px solid var(--color-brand)', borderRadius: 'var(--radius-md)' }}>
+                      <Text weight="bold" style={{ display: 'block', marginBottom: '8px', color: 'var(--color-brand)' }}>Responder Actions</Text>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <Button icon={<CheckmarkCircleRegular />} size="small" onClick={markOnScene}>
+                          On Scene
+                        </Button>
+                        <Dropdown placeholder="Request Backup..." size="small" style={{ minWidth: '140px' }} onOptionSelect={(_, d) => requestBackup(d.optionValue || '')}>
+                          <Option value="ambulance">Ambulance</Option>
+                          <Option value="police_car">Police Car</Option>
+                          <Option value="fire_truck">Fire Truck</Option>
+                        </Dropdown>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <Button appearance="secondary" icon={<StopRegular />} onClick={resetSimulation} style={{ minHeight: '48px', flex: 1 }}>
+                        Abort
+                      </Button>
+                      <Button appearance="primary" icon={<ArrowForwardRegular />} onClick={resumeSimulation} style={{ minHeight: '48px', flex: 2 }}>
+                        Resume Journey
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
-                  <Button
-                    appearance="secondary"
-                    icon={<StopRegular />}
-                    onClick={resetSimulation}
-                    style={{ minHeight: '48px', flex: 1 }}
-                  >
-                    Stop
-                  </Button>
+                  <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                    <Button
+                      appearance="secondary"
+                      icon={<StopRegular />}
+                      onClick={resetSimulation}
+                      style={{ minHeight: '48px', flex: 1 }}
+                    >
+                      Stop
+                    </Button>
+                    <Button
+                      appearance="subtle"
+                      icon={<ArrowResetRegular />}
+                      onClick={resetSimulation}
+                      style={{ minHeight: '48px' }}
+                      aria-label="Reset"
+                    />
+                  </div>
                 )}
-                <Button
-                  appearance="subtle"
-                  icon={<ArrowResetRegular />}
-                  onClick={resetSimulation}
-                  style={{ minHeight: '48px' }}
-                  aria-label="Reset"
-                />
               </div>
 
               {/* Selected vehicle info */}
