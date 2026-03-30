@@ -13,6 +13,7 @@ import { listVehicles } from '@/lib/api/tracking';
 import { loadGoogleMaps } from '@/lib/maps/loader';
 import { consumeMapLoad } from '@/lib/maps/quota';
 import { showInfoPopup, dismissInfoPopup } from '@/lib/maps/infoPopup';
+import { makeIncidentPin, makeMyLocationPin } from '@/app/(ops)/dashboard/DashboardMap';
 import { IncidentTypeChip }    from '@/components/IncidentTypeChip';
 import { IncidentStatusBadge } from '@/components/StatusBadge';
 import { ErrorState } from '@/components/ui/ErrorState';
@@ -36,70 +37,9 @@ if (typeof window !== 'undefined') {
 
 const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
-const INCIDENT_COLOR: Record<string, string> = {
-  medical: '#E63946',
-  fire:    '#F26419',
-  crime:   '#1565C0',
-};
-
-const INCIDENT_ICONS: Record<string, string> = {
-  // Medical cross
-  medical: '<path d="M19 10.5h-5.5V5h-3v5.5H5v3h5.5V19h3v-5.5H19v-3z"/>',
-  // Fire flame
-  fire: '<path d="M19.48 12.35c-1.57-4.08-7.16-4.3-5.81-10.23-.1-.11-.27-.13-.39-.05-3.35 2.11-4.8 5.76-5.18 9.24C7.72 13.06 7 14.33 7 15.6c0 2.76 2.24 5 5 5s5-2.24 5-5c0-1.22-.39-2.36-1.02-3.25zM12 18.5c-1.53 0-2.82-1.09-3.07-2.58.62.9 1.63 1.58 2.82 1.58 1.45 0 2.66-.86 3.12-2.12-.55 1.52-2.02 2.62-3.72 2.62.29-.2.53-.45.74-.75 1.12-1.63.48-4.22.48-4.22.25.79.29 1.62-.06 2.37.59-1.25.29-2.52-.39-3.32-.45.38-.85.83-1.05 1.4-1.29 3.65 1.76 4.67 1.13 5.02z"/>',
-  // Police shield
-  crime: '<path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/>'
-};
-
-function makeIncidentPin(type: string, isAwaitingUnits: boolean): HTMLElement {
-  const color = INCIDENT_COLOR[type] ?? '#888888';
-  const size = 32;
-  const wrap = document.createElement('div');
-  wrap.style.cssText = `position:relative;display:flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;`;
-
-  if (isAwaitingUnits) {
-    const pulse = document.createElement('div');
-    pulse.style.cssText = `position:absolute;width:100%;height:100%;border-radius:50%;background:${color};opacity:0.6;animation:field-hazard-pulse 1.2s cubic-bezier(0.24, 0, 0.38, 1) infinite;z-index:0;`;
-    wrap.appendChild(pulse);
-
-    if (!document.getElementById('field-hazard-pulse-style')) {
-      const s = document.createElement('style');
-      s.id = 'field-hazard-pulse-style';
-      s.textContent = `@keyframes field-hazard-pulse{0%{transform:scale(1);opacity:0.6}70%{transform:scale(2.8);opacity:0}100%{transform:scale(2.8);opacity:0}}`;
-      document.head.appendChild(s);
-    }
-  }
-  
-  const iconContainer = document.createElement('div');
-  iconContainer.style.cssText = `position:absolute;width:100%;height:100%;z-index:1;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0px 2px 4px rgba(0,0,0,0.5));`;
-  
-  const iconSvg = INCIDENT_ICONS[type] || '<circle cx="12" cy="12" r="10"/>';
-  iconContainer.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 24 24" fill="${color}" stroke="#fff" stroke-width="2" stroke-linejoin="round" stroke-linecap="round">${iconSvg}</svg>`;
-  wrap.appendChild(iconContainer);
-  return wrap;
-}
-
-function makeMyLocationPin(): HTMLElement {
-  const wrap = document.createElement('div');
-  wrap.style.cssText = `position:relative;width:20px;height:20px;display:flex;align-items:center;justify-content:center;`;
-  const pulse = document.createElement('div');
-  pulse.style.cssText = `position:absolute;width:20px;height:20px;border-radius:50%;background:#4285F4;opacity:0.25;animation:fieldmap-pulse 1.8s ease-out infinite;`;
-  const dot = document.createElement('div');
-  dot.style.cssText = `width:12px;height:12px;border-radius:50%;background:#4285F4;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.4);z-index:1;`;
-  wrap.appendChild(pulse);
-  wrap.appendChild(dot);
-  if (!document.getElementById('fieldmap-pulse-style')) {
-    const s = document.createElement('style');
-    s.id = 'fieldmap-pulse-style';
-    s.textContent = `@keyframes fieldmap-pulse{0%{transform:scale(1);opacity:0.25}70%{transform:scale(2.2);opacity:0}100%{transform:scale(2.2);opacity:0}}`;
-    document.head.appendChild(s);
-  }
-  return wrap;
-}
-
 function makeBackupPin(): HTMLElement {
   const el = document.createElement('div');
-  el.style.cssText = `width:13px;height:13px;border-radius:50%;background:#0097A7;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);`;
+  el.style.cssText = width:13px;height:13px;border-radius:50%;background:#0097A7;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.3);;
   return el;
 }
 
@@ -286,7 +226,7 @@ function FieldIncidentContent() {
         position: { lat, lng },
         map,
         title: incident.location_name ?? 'Incident',
-        content: makeIncidentPin(incType, isAwaiting),
+        content: makeIncidentPin(incType, false, 0, isAwaiting),
         zIndex: 10,
       });
       incMarker.addListener('gmp-click', () => {
