@@ -84,7 +84,7 @@ async function getDrivingRoute(
   });
 }
 
-type SimPhase = 'idle' | 'to_incident' | 'to_hospital' | 'done';
+type SimPhase = 'idle' | 'to_incident' | 'to_hospital' | 'to_base' | 'done';
 
 const STEP_INTERVAL_MS = 1_000; // push a location update every 1 second
 const STEPS_PER_LEG    = 20;    // 20 steps × 1 s = ~20 s per leg
@@ -208,13 +208,25 @@ export default function SimulatePage() {
     if (!selectedVehicle || !selectedIncident) return;
     stopTimer();
 
+    const isMedical = selectedVehicle.vehicle_type === 'ambulance' || selectedVehicle.vehicle_type?.includes('medical');
+
     const vLat = parseFloat(selectedVehicle.latitude) || DEFAULT_VEHICLE_POS.lat;
     const vLng = parseFloat(selectedVehicle.longitude) || DEFAULT_VEHICLE_POS.lng;
     const iLat = parseFloat(selectedIncident.latitude);
     const iLng = parseFloat(selectedIncident.longitude);
 
+    let destinationLat = vLat;
+    let destinationLng = vLng;
+    let destinationName = 'Base';
+
     const hospital = nearestHospital();
-    if (!hospital) return;
+    if (isMedical && hospital) {
+      destinationLat = hospital.lat;
+      destinationLng = hospital.lng;
+      destinationName = hospital.name;
+    } else if (isMedical && !hospital) {
+      return; // Can't proceed
+    }
 
     setPhase('to_incident');
     phaseRef.current = 'to_incident';
@@ -226,11 +238,8 @@ export default function SimulatePage() {
     const allWaypoints = await getDrivingRoute(
       { lat: vLat, lng: vLng },
       { lat: iLat, lng: iLng },
-      { lat: hospital.lat, lng: hospital.lng },
+      { lat: destinationLat, lng: destinationLng },
     );
-
-    // Show entire planned route on the map before starting
-    setRoutePath(allWaypoints);
 
     // Find the leg-split index (closest point to the incident)
     let splitIdx = 0;
@@ -239,6 +248,12 @@ export default function SimulatePage() {
       const d = haversine(p.lat, p.lng, iLat, iLng);
       if (d < minDist) { minDist = d; splitIdx = idx; }
     });
+
+    const leg1 = allWaypoints.slice(0, splitIdx + 1);
+    const leg2 = allWaypoints.slice(splitIdx);
+
+    // Show ONLY first leg on the map before starting
+    setRoutePath(leg1);
 
     waypointsRef.current = allWaypoints;
     stepRef.current = 0;
@@ -253,7 +268,7 @@ export default function SimulatePage() {
         phaseRef.current = 'done';
         setProgress(100);
         setRoutePath([]);
-        setStatusMsg(`Simulation complete. ${selectedVehicle.license_plate} arrived at ${hospital.name}.`);
+        setStatusMsg(`Simulation complete. ${selectedVehicle.license_plate} arrived at ${destinationName}.`);
         return;
       }
 
@@ -275,9 +290,15 @@ export default function SimulatePage() {
       setProgress(pct);
 
       if (newStep >= splitIdx && phaseRef.current === 'to_incident') {
-        setPhase('to_hospital');
-        phaseRef.current = 'to_hospital';
-        setStatusMsg(`${selectedVehicle.license_plate} at incident — transporting to ${hospital.name}`);
+        const nextPhase = isMedical ? 'to_hospital' : 'to_base';
+        setPhase(nextPhase);
+        phaseRef.current = nextPhase;
+        setRoutePath(leg2); // Only show the return/transport leg
+        setStatusMsg(
+          isMedical
+            ? `${selectedVehicle.license_plate} at incident — transporting to ${destinationName}`
+            : `${selectedVehicle.license_plate} at incident — returning to base`
+        );
       }
     }, STEP_INTERVAL_MS);
   }
@@ -301,12 +322,14 @@ export default function SimulatePage() {
     idle:        'Idle',
     to_incident: 'En Route → Incident',
     to_hospital: 'En Route → Hospital',
+    to_base:     'En Route → Base',
     done:        'Complete',
   };
   const phaseColor: Record<SimPhase, React.CSSProperties['color']> = {
     idle:        'var(--color-text-muted)',
     to_incident: 'var(--color-dispatched)',
     to_hospital: 'var(--color-in-progress)',
+    to_base:     'var(--color-in-progress)',
     done:        'var(--color-available)',
   };
 
@@ -384,7 +407,7 @@ export default function SimulatePage() {
                   <div style={{ marginTop: '8px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                       <Text style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                        {phase === 'to_incident' ? 'To incident' : phase === 'to_hospital' ? 'To hospital' : 'Complete'}
+                        {phase === 'to_incident' ? 'To incident' : phase === 'to_hospital' ? 'To hospital' : phase === 'to_base' ? 'To base' : 'Complete'}
                       </Text>
                       <Text style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{progress}%</Text>
                     </div>
