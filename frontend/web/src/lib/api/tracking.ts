@@ -59,6 +59,6 @@ export async function stopSimulationRun(token: string, id: string) {
 }
 
 export async function getActiveSimulations(token: string) {
-  const { data } = await axios.get(`${BASE}/simulations/active`, { headers: headers(token) });
+  const { data } = await axios.get(`${BASE}/simulations/active?_t=${Date.now()}`, { headers: headers(token) });
   return data; // returns { simulations: [], past: [] }
 }

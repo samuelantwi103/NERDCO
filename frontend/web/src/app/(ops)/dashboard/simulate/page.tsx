@@ -157,8 +157,7 @@ export default function SimulatePage() {
             setPhase(mySim.phase as SimPhase);
             setProgress(Math.round((mySim.currentStep / mySim.totalSteps) * 100));
             setStatusMsg(`Remote execution: ${mySim.currentStep} / ${mySim.totalSteps} steps completed...`);
-            setRoutePath([]);
-          } else if (phase !== 'idle' && phase !== 'done') {
+          } else if (phase !== 'idle' && phase !== 'done' && phase !== 'starting') {
             setPhase('done');
             setProgress(100);
             setStatusMsg('Simulation completed.');
@@ -260,7 +259,7 @@ export default function SimulatePage() {
       return; // Can't proceed
     }
 
-    setPhase('to_incident');
+    setPhase('starting');
     setProgress(0);
     setStatusMsg(`Offloading path-finding for ${selectedVehicle.license_plate} to backend…`);
 
@@ -291,8 +290,7 @@ export default function SimulatePage() {
         splitIdx,
         speedMs: STEP_INTERVAL_MS,
       });
-      // Clear route path since dashboard map takes over immediately
-      setRoutePath([]);
+      setRoutePath(allWaypoints); // Keep route active on map!
     } catch (err: any) {
       setStatusMsg(`Failed to start simulation: ${err?.message}`);
       setPhase('idle');
@@ -314,15 +312,17 @@ export default function SimulatePage() {
   if (!mounted) return null;
   if (!user || user.role !== 'system_admin') return null;
 
-  const phaseLabel: Record<SimPhase, string> = {
+  const phaseLabel: Record<SimPhase | 'starting', string> = {
     idle:        'Idle',
+    starting:    'Starting',
     to_incident: 'En Route → Incident',
     to_hospital: 'En Route → Hospital',
     to_base:     'En Route → Base',
     done:        'Complete',
   };
-  const phaseColor: Record<SimPhase, React.CSSProperties['color']> = {
+  const phaseColor: Record<SimPhase | 'starting', React.CSSProperties['color']> = {
     idle:        'var(--color-text-muted)',
+    starting:    'var(--color-brand)',
     to_incident: 'var(--color-dispatched)',
     to_hospital: 'var(--color-in-progress)',
     to_base:     'var(--color-in-progress)',
