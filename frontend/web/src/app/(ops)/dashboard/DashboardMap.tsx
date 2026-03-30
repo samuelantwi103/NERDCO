@@ -156,7 +156,7 @@ export function makeFacilityPin(type: string, name: string, isMyFacility: boolea
   return wrap;
 }
 
-function makeMyLocationPin(): HTMLElement {
+export function makeMyLocationPin(): HTMLElement {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:relative;width:20px;height:20px;display:flex;align-items:center;justify-content:center;';
   const pulse = document.createElement('div');
