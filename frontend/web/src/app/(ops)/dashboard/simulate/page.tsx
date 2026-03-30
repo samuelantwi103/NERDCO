@@ -635,7 +635,7 @@ export default function SimulatePage() {
                                     style={{ flex: 1 }}
                                     onClick={async () => {
                                       const type = window.prompt('Backup type: medical / fire / crime');
-                                      if (type) await apiRequestSupport(token, sim.incidentId, type);
+                                      if (type) await apiRequestSupport(token, sim.incidentId, { support_type: type });
                                     }}
                                   >
                                     Call Backup
@@ -676,7 +676,7 @@ export default function SimulatePage() {
                                   icon={<AddCircleRegular />}
                                   onClick={async () => {
                                     const type = window.prompt('Backup type: medical / fire / crime');
-                                    if (type) await apiRequestSupport(token, sim.incidentId, type);
+                                    if (type) await apiRequestSupport(token, sim.incidentId, { support_type: type });
                                   }}
                                 >
                                   Request Backup
