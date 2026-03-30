@@ -66,8 +66,8 @@ async function startSimulation(req: any, res: any) {
         publish('vehicle.location.updated', payload);
         broadcast({ type: 'vehicle.location.updated', payload });
       }
-    } catch {
-      // non-fatal
+    } catch (err: any) {
+      console.error('[simulationController] Tick Error:', err);
     }
 
     if (state.currentStep >= state.splitIdx && state.phase === 'to_incident') {
