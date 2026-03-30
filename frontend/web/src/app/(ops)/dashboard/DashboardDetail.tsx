@@ -60,13 +60,14 @@ interface DashboardDetailProps {
     detail: any;
     vehicles: any[];
     relatedIncidents?: any[];
+    organizations?: any[];
     statusBusy: boolean;
     overriding: boolean;
     onStatusUpdate: (status: string) => void;
     onOverride: (vehicleId: string) => void;
 }
 
-export function DashboardDetail({ detail, vehicles, relatedIncidents, statusBusy, overriding, onStatusUpdate, onOverride }: DashboardDetailProps) {
+export function DashboardDetail({ detail, vehicles, relatedIncidents, organizations, statusBusy, overriding, onStatusUpdate, onOverride }: DashboardDetailProps) {
     const styles = useStyles();
 
     if (!detail) {
@@ -143,6 +144,18 @@ export function DashboardDetail({ detail, vehicles, relatedIncidents, statusBusy
                         </div>
                     )}
                 </div>
+
+                {/* Destination hospital (when in_progress) */}
+                {detail.destination_hospital_id && (() => {
+                    const hospital = organizations?.find((o: any) => o.id === detail.destination_hospital_id);
+                    return hospital ? (
+                        <div className={styles.metaCard} style={{ borderLeft: '3px solid var(--color-available)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span className={styles.metaLabel} style={{ color: 'var(--color-available)' }}>Destination Hospital</span>
+                            <Text className={styles.metaValue}>{hospital.name}</Text>
+                            {hospital.address && <Text style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>{hospital.address}</Text>}
+                        </div>
+                    ) : null;
+                })()}
 
                 {/* MCI: all dispatched units (parent + children) */}
                 {allUnitIds.length > 1 && (

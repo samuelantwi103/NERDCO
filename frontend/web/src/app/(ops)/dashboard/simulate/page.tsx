@@ -288,8 +288,10 @@ export default function SimulatePage() {
                   onOptionSelect={(_, d) => setSelectedIncidentId(d.optionValue ?? '')}
                   disabled={phase !== 'idle'}
                 >
-                  {incidents.map(i => {
-                    const label = `[${i.incident_type ?? i.type_id}] ${i.location_name ?? i.id} · ${i.status}`;
+                  {incidents.filter(i => !i.parent_incident_id).map(i => {
+                    const childCount = incidents.filter(c => c.parent_incident_id === i.id).length;
+                    const mciSuffix = childCount > 0 ? ` · MCI (${childCount + 1} units)` : '';
+                    const label = `[${i.incident_type ?? i.type_id}] ${i.location_name ?? i.id} · ${i.status}${mciSuffix}`;
                     return (
                       <Option key={i.id} value={i.id} text={label}>
                         {label}

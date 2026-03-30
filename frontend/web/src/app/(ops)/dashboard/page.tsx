@@ -45,10 +45,21 @@ function DashboardContent() {
   const [detailOpen, setDetailOpen] = useState(true);
 
   const {
-    incidents, vehicles, selectedId, detail,
+    incidents, vehicles, organizations, selectedId, detail,
     statusBusy, overriding, error,
-    selectIncident, handleStatusUpdate, handleOverride
+    selectIncident, handleStatusUpdate, handleOverride,
   } = useDashboardState(token, { success: notifySuccess });
+
+  // Build facility list for the map — show all orgs as facility markers
+  const facilities = organizations
+    .filter(o => o.latitude && o.longitude)
+    .map(o => ({
+      id:   o.id,
+      lat:  parseFloat(o.latitude),
+      lng:  parseFloat(o.longitude),
+      name: o.name,
+      type: o.type ?? o.org_type ?? 'hospital',
+    }));
 
   // Auto-select a highlighted incident (e.g. redirected from duplicate detection)
   useEffect(() => {
@@ -102,6 +113,7 @@ function DashboardContent() {
         <DashboardMap
           incidents={selectedId && detail ? incidents.filter(i => i.id === selectedId || i.parent_incident_id === detail.id) : incidents}
           vehicles={vehicles}
+          facilities={facilities}
           selectedId={selectedId}
           onSelect={selectIncident}
           hidePOIs={true}
@@ -127,6 +139,7 @@ function DashboardContent() {
         <DashboardDetail
           detail={detail}
           vehicles={vehicles}
+          organizations={organizations}
           statusBusy={statusBusy}
           overriding={overriding}
           onStatusUpdate={handleStatusUpdate}
