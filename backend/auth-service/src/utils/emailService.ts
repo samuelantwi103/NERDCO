@@ -50,7 +50,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
 }
 
 export async function sendPasswordResetEmail(to: string, name: string, resetToken: string): Promise<boolean> {
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const frontendUrl = process.env.FRONTEND_URL || 'https://nerdco.vercel.app';
   const resetUrl    = `${frontendUrl}/reset-password?token=${resetToken}`;
 
   const html = `
