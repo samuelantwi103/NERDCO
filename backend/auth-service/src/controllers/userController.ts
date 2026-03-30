@@ -86,7 +86,7 @@ async function listUsers(req, res) {
 // PUT /auth/users/:id — update user metadata (role, name, active status)
 async function updateUser(req, res) {
   const { id } = req.params;
-  const { name, role, is_active, organization_id } = req.body;
+    const { name, role, is_active, organization_id, password } = req.body;
 
   if (role && !VALID_ROLES.includes(role)) {
     return res.status(400).json({ error: 'validation', message: `role must be one of: ${VALID_ROLES.join(', ')}` });
@@ -119,8 +119,13 @@ async function updateUser(req, res) {
       organizationId: organization_id !== undefined ? organization_id : existing.org_id
     };
 
-    const updatedUser = await userRepo.update(updates);
-    res.status(200).json({ user: updatedUser, message: 'User updated successfully' });
+    const updatedUser = await userRepo.update(updates);      
+      if (password && typeof password === 'string' && password.trim().length > 0) {
+        const bcrypt = require('bcryptjs');
+        const passwordHash = await bcrypt.hash(password, 12);
+        await userRepo.updatePassword(id, passwordHash);
+      }
+          res.status(200).json({ user: updatedUser, message: 'User updated successfully' });
   } catch (err: any) {
     console.error('[updateUser]', err?.message);
     res.status(500).json({ error: 'server_error', message: 'Internal server error' });

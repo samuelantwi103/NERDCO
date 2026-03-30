@@ -13,7 +13,7 @@ async function list(req, res) {
 }
 
 async function create(req, res) {
-  const { name, type, latitude, longitude, address, phone, beds_available, beds_total } = req.body;
+  const { name, type, latitude, longitude, address, phone, beds_available, beds_total, capabilities = [] } = req.body;
   if (!name || !type || latitude == null || longitude == null) {
     return res.status(400).json({ error: 'validation', message: 'name, type, latitude and longitude are required' });
   }
@@ -22,7 +22,7 @@ async function create(req, res) {
   }
   try {
     res.status(201).json({
-      organization: await orgRepo.create({ name, type, latitude, longitude, address, phone, bedsAvailable: beds_available ?? 0, bedsTotal: beds_total ?? 0 }),
+      organization: await orgRepo.create({ name, type, latitude, longitude, address, phone, bedsAvailable: beds_available ?? 0, bedsTotal: beds_total ?? 0, capabilities }),
     });
   } catch {
     res.status(500).json({ error: 'server_error', message: 'Internal server error' });
@@ -96,7 +96,7 @@ async function getById(req: any, res: any) {
 async function update(req: any, res: any) {
   try {
     const { id } = req.params;
-    const { name, type, latitude, longitude, address, phone } = req.body;
+    const { name, type, latitude, longitude, address, phone, capabilities } = req.body;
     
     // Check if organization exists
     const [existing] = await pool.query('SELECT * FROM organizations WHERE id = $1', [id]).then((res: any) => res.rows);
@@ -109,9 +109,9 @@ async function update(req: any, res: any) {
     
     const { rows } = await pool.query(
       `UPDATE organizations 
-       SET name = $1, type = $2, latitude = $3, longitude = $4, address = $5, phone = $6, updated_at = NOW()
-       WHERE id = $7 RETURNING *`,
-      [name || existing.name, type || existing.type, latitude || existing.latitude, longitude || existing.longitude, address || existing.address, phone || existing.phone, id]
+       SET name = $1, type = $2, latitude = $3, longitude = $4, address = $5, phone = $6, capabilities = $7, updated_at = NOW()
+       WHERE id = $8 RETURNING *`,
+      [name || existing.name, type || existing.type, latitude || existing.latitude, longitude || existing.longitude, address || existing.address, phone || existing.phone, capabilities || existing.capabilities, id]
     );
     
     res.status(200).json({ organization: rows[0], message: 'Organization updated' });

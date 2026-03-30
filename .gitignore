@@ -7,3 +7,4 @@
 /backend/analytics-service/dist
 /backend/tracking-service/dist
 # /backend/scripts
+/node_modules

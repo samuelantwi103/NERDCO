@@ -10,5 +10,6 @@ router.put('/:id/status',             verifyJwt, requireRole('system_admin', 'or
 router.put('/:id/assign',             verifyJwt, requireRole('system_admin', 'org_admin'), ctrl.reassign);
 router.post('/:id/request-support',   verifyJwt, ctrl.requestSupport);
 router.get('/:id/related',            verifyJwt, ctrl.getRelated);
+router.get('/nearby',                 verifyJwt, ctrl.getNearby);
 
 module.exports = router;

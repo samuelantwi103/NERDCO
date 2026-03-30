@@ -373,7 +373,8 @@ async function main() {
       skip('WebSocket connect', 'ws package not installed — run: pnpm add -w ws');
     } else {
       await new Promise((resolve) => {
-        const ws = new WebSocket(`ws://localhost:3003/ws/vehicles`, {
+        const wsUrl = TRACKING.replace(/^http/, 'ws') + '/ws/vehicles';
+        const ws = new WebSocket(wsUrl, {
           headers: { Authorization: `Bearer ${adminToken}` },
         });
         const timer = setTimeout(() => { ws.terminate(); ok('WebSocket connects within 3s', false, 'timeout'); resolve(); }, 3000);

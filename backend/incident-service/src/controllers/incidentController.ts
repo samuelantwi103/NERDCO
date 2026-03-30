@@ -68,6 +68,7 @@ async function claimNearestVehicle(
 async function selectDestinationHospital(
   lat: number,
   lng: number,
+  requiredCapability: string | null = null,
 ): Promise<HospitalInfo | null> {
   let hospitals: HospitalInfo[];
   try {
@@ -76,14 +77,27 @@ async function selectDestinationHospital(
     return null; // non-fatal — don't block dispatch
   }
   if (!hospitals.length) return null;
-  return hospitals
+
+  // Filter by capability if requested
+  let pool = hospitals;
+  if (requiredCapability) {
+    const normalizedReq = requiredCapability.toLowerCase().trim();
+    pool = hospitals.filter(h => 
+      Array.isArray(h.capabilities) && 
+      h.capabilities.some(c => c.toLowerCase().trim() === normalizedReq)
+    );
+    // If no hospital with that capability has beds, fall back to any hospital with beds
+    if (pool.length === 0) pool = hospitals;
+  }
+
+  return pool
     .map(h => ({ ...h, distance_km: haversineKm(lat, lng, h.latitude, h.longitude) }))
     .sort((a, b) => a.distance_km - b.distance_km)[0];
 }
 
 async function create(req, res) {
   try {
-  const { citizen_name, incident_type, severity = 'high', latitude, longitude, notes, unit_count = 1, mci_units } = req.body;
+  const { citizen_name, incident_type, severity = 'high', latitude, longitude, notes, unit_count = 1, mci_units, required_capability } = req.body;
 
   if (!citizen_name || !incident_type || latitude == null || longitude == null) {
     return res.status(400).json({ error: 'validation', message: 'citizen_name, incident_type, latitude and longitude are required' });
@@ -121,7 +135,7 @@ async function create(req, res) {
   // For medical incidents, find destination hospital in parallel with vehicle ranking
   const [ranked, destHospital] = await Promise.all([
     rankAvailableVehicles(vehicle_type, latitude, longitude, authHeader).catch(() => null),
-    isMedical ? selectDestinationHospital(latitude, longitude) : Promise.resolve(null),
+    isMedical ? selectDestinationHospital(latitude, longitude, required_capability) : Promise.resolve(null),
   ]);
 
   if (!ranked) {
@@ -498,4 +512,27 @@ async function getRelated(req, res) {
   }
 }
 
-module.exports = { create, listOpen, getOne, updateStatus, reassign, requestSupport, getRelated };
+async function getNearby(req, res) {
+  try {
+    const { lat, lng, radius = 1, exclude } = req.query;
+    if (lat == null || lng == null) {
+      return res.status(400).json({ error: 'validation', message: 'lat and lng are required' });
+    }
+    const latitude  = Math.fround(Number(lat));
+    const longitude = Math.fround(Number(lng));
+    const radiusKm  = Number(radius) || 1;
+
+    const nearby = await incidentRepo.findNearbyAll(latitude, longitude);
+    const filtered = nearby
+      .filter((i: any) => i.id !== exclude)
+      .map((i: any) => ({ ...i, distance_km: haversineKm(latitude, longitude, i.latitude, i.longitude) }))
+      .filter((i: any) => i.distance_km <= radiusKm)
+      .sort((a: any, b: any) => a.distance_km - b.distance_km);
+
+    res.status(200).json({ incidents: filtered });
+  } catch (err: any) {
+    res.status(500).json({ error: 'server_error', message: err.message });
+  }
+}
+
+module.exports = { create, listOpen, getOne, updateStatus, reassign, requestSupport, getRelated, getNearby };

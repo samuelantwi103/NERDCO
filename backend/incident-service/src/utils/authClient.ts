@@ -17,6 +17,7 @@ export interface HospitalInfo {
   longitude: number;
   beds_available: number;
   beds_total: number;
+  capabilities: string[];
 }
 
 // Returns hospitals that currently have at least one bed available.

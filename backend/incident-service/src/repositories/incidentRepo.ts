@@ -60,6 +60,20 @@ async function findNearbyOpen(incidentType: string, lat: number, lng: number) {
   return rows;
 }
 
+// Returns all open incidents within a 1km bounding box, used for situational awareness.
+async function findNearbyAll(lat: number, lng: number) {
+  const delta = 0.01; // ~1.1km bounding box half-side
+  const { rows } = await pool.query(
+    `SELECT * FROM incidents
+     WHERE status != 'resolved'
+       AND latitude  BETWEEN $1 AND $2
+       AND longitude BETWEEN $3 AND $4
+     ORDER BY created_at DESC`,
+    [lat - delta, lat + delta, lng - delta, lng + delta]
+  );
+  return rows;
+}
+
 async function findUnassigned(incidentType: string | null) {
   if (incidentType) {
     // Scoped query used by the dispatch retry background job for a specific type
