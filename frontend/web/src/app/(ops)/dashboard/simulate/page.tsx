@@ -14,7 +14,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Text, Button, Spinner, Dropdown, Option, makeStyles,
-  Badge, Divider, Field,
+  Badge, Divider, Field, TabList, Tab
 } from '@fluentui/react-components';
 import { PlayCircleRegular, StopRegular, ArrowResetRegular, VehicleCarRegular } from '@fluentui/react-icons';
 import { useAuth } from '@/lib/context/AuthContext';
@@ -134,13 +134,18 @@ export default function SimulatePage() {
   const [progress,    setProgress]    = useState(0);   // 0-100
   const [statusMsg,   setStatusMsg]   = useState('Select a vehicle and incident to begin.');
   const [liveVehicles, setLiveVehicles] = useState<any[]>([]);
+  const [activeGlobalSims, setActiveGlobalSims] = useState<any[]>([]);
+  const [pastGlobalSims, setPastGlobalSims] = useState<any[]>([]);
+  const [panelTab, setPanelTab] = useState<'dispatch' | 'manage'>('dispatch');
 
   // Periodically check global simulation state
   useEffect(() => {
     if (!token) return;
     const t = setInterval(async () => {
       try {
-        const sims = await getActiveSimulations(token);
+        const { simulations: sims, past } = await getActiveSimulations(token);
+        setActiveGlobalSims(sims);
+        setPastGlobalSims(past || []);
         if (selectedVehicleId) {
           const mySim = sims.find((s: any) => s.vehicleId === selectedVehicleId);
           if (mySim) {
@@ -326,12 +331,17 @@ export default function SimulatePage() {
           <Text className={styles.title}>Vehicle Simulation</Text>
           <Text className={styles.sub}>Animate a dispatch from incident to hospital</Text>
         </div>
-        <Divider style={{ margin: '16px 0 0' }} />
+
+        <TabList selectedValue={panelTab} onTabSelect={(_, d) => setPanelTab(d.value as any)} style={{ padding: '0 20px', marginTop: '12px' }}>
+          <Tab value="dispatch">Dispatch</Tab>
+          <Tab value="manage">Manager</Tab>
+        </TabList>
+        <Divider style={{ margin: '0' }} />
 
         <div className={styles.body}>
           {loading ? (
             <Spinner size="small" label="Loading fleet data…" />
-          ) : (
+          ) : panelTab === 'dispatch' ? (
             <>
               {/* Vehicle selector */}
               <Field label="Vehicle">
@@ -457,6 +467,69 @@ export default function SimulatePage() {
                 Each leg (en-route & to-hospital) is divided into {STEPS_PER_LEG} interpolated steps (~{STEPS_PER_LEG}s per leg).
               </Text>
             </>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div>
+                <Text weight="semibold" style={{ display: 'block', marginBottom: '8px' }}>
+                  Active Runs ({activeGlobalSims.length})
+                </Text>
+                {activeGlobalSims.length === 0 ? (
+                  <Text style={{ color: 'var(--color-text-muted)', fontSize: '13px' }}>No active simulations.</Text>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {activeGlobalSims.map((sim, i) => {
+                      const veh = vehicles.find(v => v.id === sim.vehicleId);
+                      return (
+                        <div key={i} style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text weight="semibold" style={{ fontSize: '13px' }}>{veh?.license_plate || sim.vehicleId.slice(0, 8)}</Text>
+                            <Badge appearance="filled" color="warning" size="small">{sim.phase.replace('_', ' ')}</Badge>
+                          </div>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                              <Text style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Progress</Text>
+                              <Text style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{Math.round((sim.currentStep / sim.totalSteps) * 100)}%</Text>
+                            </div>
+                            <div className={styles.progressTrack}>
+                              <div className={styles.progressFill} style={{ width: `${(sim.currentStep / sim.totalSteps) * 100}%` }} />
+                            </div>
+                          </div>
+                          <Button size="small" appearance="secondary" onClick={async () => {
+                            await stopSimulationRun(token, sim.vehicleId);
+                          }}>Stop Run</Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <Text weight="semibold" style={{ display: 'block', marginBottom: '8px' }}>
+                  Recent History ({pastGlobalSims.length})
+                </Text>
+                {pastGlobalSims.length === 0 ? (
+                  <Text style={{ color: 'var(--color-text-muted)', fontSize: '13px' }}>No finished simulations yet.</Text>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {pastGlobalSims.slice(0, 10).map((sim, i) => {
+                      const veh = vehicles.find(v => v.id === sim.vehicleId);
+                      return (
+                        <div key={i} style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <Text weight="semibold" style={{ fontSize: '12px' }}>{veh?.license_plate || sim.vehicleId.slice(0, 8)}</Text>
+                            <Text style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Ended: {new Date(sim.completedAt).toLocaleTimeString()}</Text>
+                          </div>
+                          <Badge color={sim.reason === 'completed' ? 'success' : 'danger'} size="small">
+                            {sim.reason}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
       </aside>

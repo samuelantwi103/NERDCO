@@ -16,7 +16,19 @@ export interface SimulationState {
 }
 
 const activeSimulations = new Map<string, SimulationState>();
+const finishedSimulations: any[] = [];
 
+function recordFinished(state: SimulationState, reason: 'completed' | 'stopped') {
+  finishedSimulations.unshift({
+    vehicleId: state.vehicleId,
+    incidentId: state.incidentId,
+    destinationName: state.destinationName,
+    finalPhase: state.phase,
+    reason,
+    completedAt: new Date().toISOString()
+  });
+  if (finishedSimulations.length > 50) finishedSimulations.pop();
+}
 async function startSimulation(req: any, res: any) {
   if (req.user.role !== 'system_admin') return res.status(403).json({ error: 'forbidden' });
   const { id: vehicleId } = req.params;
@@ -27,7 +39,9 @@ async function startSimulation(req: any, res: any) {
   }
 
   if (activeSimulations.has(vehicleId)) {
-    clearInterval(activeSimulations.get(vehicleId)!.timer);
+    const oldState = activeSimulations.get(vehicleId)!;
+    clearInterval(oldState.timer);
+    recordFinished(oldState, 'stopped');
     activeSimulations.delete(vehicleId);
   }
 
@@ -51,6 +65,7 @@ async function startSimulation(req: any, res: any) {
     
     if (state.currentStep >= state.waypoints.length) {
       clearInterval(state.timer);
+      recordFinished(state, 'completed');
       activeSimulations.delete(vehicleId);
       return;
     }
@@ -86,7 +101,9 @@ async function stopSimulation(req: any, res: any) {
   const { id: vehicleId } = req.params;
   
   if (activeSimulations.has(vehicleId)) {
-    clearInterval(activeSimulations.get(vehicleId)!.timer);
+    const state = activeSimulations.get(vehicleId)!;
+    clearInterval(state.timer);
+    recordFinished(state, 'stopped');
     activeSimulations.delete(vehicleId);
   }
   
@@ -107,7 +124,7 @@ async function listActive(req: any, res: any) {
     phase: s.phase
   }));
   
-  res.status(200).json({ simulations: payload });
+  res.status(200).json({ simulations: payload, past: finishedSimulations });
 }
 
 module.exports = { startSimulation, stopSimulation, listActive };
