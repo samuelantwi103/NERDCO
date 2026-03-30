@@ -84,7 +84,7 @@ async function getDrivingRoute(
   });
 }
 
-type SimPhase = 'idle' | 'to_incident' | 'to_hospital' | 'to_base' | 'done';
+type SimPhase = 'idle' | 'starting' | 'to_incident' | 'to_hospital' | 'to_base' | 'done';
 
 const STEP_INTERVAL_MS = 1_000; // push a location update every 1 second
 const STEPS_PER_LEG    = 20;    // 20 steps × 1 s = ~20 s per leg
