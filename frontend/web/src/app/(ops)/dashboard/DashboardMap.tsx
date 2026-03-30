@@ -209,6 +209,7 @@ export const DashboardMap = ({
   const myLocMarkerRef  = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const fieldPolyRef    = useRef<google.maps.Polyline | null>(null);
   const routeLinesRef   = useRef<google.maps.Polyline[]>([]);
+  const cachedRoutesRef = useRef<Record<string, google.maps.LatLngLiteral[]>>({});
   const simPolyRef      = useRef<google.maps.Polyline | null>(null);
   const popupRef        = useRef<HTMLElement | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -238,12 +239,6 @@ export const DashboardMap = ({
         center: DEFAULT_CENTER, zoom: 12,
         disableDefaultUI: true, zoomControl: true,
         mapId: 'DEMO_MAP_ID',
-        ...(hidePOIs ? {
-          styles: [
-            { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-            { featureType: 'transit', elementType: 'labels', stylers: [{ visibility: 'off' }] },
-          ]
-        } : {}),
       });
       map.addListener('click', () => {
         if (popupRef.current) {
@@ -458,50 +453,71 @@ export const DashboardMap = ({
       const isOnSiteOrTransport = status === 'in_progress';
 
       if (isEnRoute) {
-        // Vehicle → Incident real driving route
-        svc.route(
-          { origin: { lat: vLat, lng: vLng }, destination: { lat: incLat, lng: incLng }, travelMode: google.maps.TravelMode.DRIVING },
-          (result, dirStatus) => {
-            if (!active) return;
-            if (dirStatus === 'OK' && result && mapRef.current) {
-              const line = new google.maps.Polyline({
-                map: mapRef.current,
-                path: result.routes[0].overview_path,
-                geodesic: true, strokeColor: '#0078D4', strokeOpacity: 0.9, strokeWeight: 4,
-              });
-              routeLinesRef.current.push(line);
-            } else {
-              // Fallback
-              const line = new google.maps.Polyline({
-                map: mapRef.current, path: [{ lat: vLat, lng: vLng }, { lat: incLat, lng: incLng }],
-                geodesic: true, strokeColor: '#0078D4', strokeOpacity: 0, strokeWeight: 3, icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.9, scale: 4 }, offset: '0', repeat: '16px' }]
-              });
-              routeLinesRef.current.push(line);
+        const routeKey = `to_incident_${inc.id}_${vid}`;
+        if (cachedRoutesRef.current[routeKey]) {
+          const line = new google.maps.Polyline({
+            map: mapRef.current,
+            path: cachedRoutesRef.current[routeKey],
+            geodesic: true, strokeColor: '#0078D4', strokeOpacity: 0.9, strokeWeight: 4,
+          });
+          routeLinesRef.current.push(line);
+        } else {
+          svc.route(
+            { origin: { lat: vLat, lng: vLng }, destination: { lat: incLat, lng: incLng }, travelMode: google.maps.TravelMode.DRIVING },
+            (result, dirStatus) => {
+              if (!active) return;
+              if (dirStatus === 'OK' && result && mapRef.current) {
+                const path = result.routes[0].overview_path.map(p => ({ lat: p.lat(), lng: p.lng() }));
+                cachedRoutesRef.current[routeKey] = path;
+                const line = new google.maps.Polyline({
+                  map: mapRef.current,
+                  path,
+                  geodesic: true, strokeColor: '#0078D4', strokeOpacity: 0.9, strokeWeight: 4,
+                });
+                routeLinesRef.current.push(line);
+              } else if (mapRef.current) {
+                const line = new google.maps.Polyline({
+                  map: mapRef.current, path: [{ lat: vLat, lng: vLng }, { lat: incLat, lng: incLng }],
+                  geodesic: true, strokeColor: '#0078D4', strokeOpacity: 0, strokeWeight: 3, icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.9, scale: 4 }, offset: '0', repeat: '16px' }]
+                });
+                routeLinesRef.current.push(line);
+              }
             }
-          }
-        );
+          );
+        }
       }
 
       if (isOnSiteOrTransport && inc.destination_hospital_id) {
-        // Incident → Hospital real driving route
+        const routeKey = `to_hospital_${inc.id}_${inc.destination_hospital_id}`;
         const hospital = facilities.find(f => f.id === inc.destination_hospital_id);
         if (hospital) {
           const hLat = parseFloat(String(hospital.lat)); const hLng = parseFloat(String(hospital.lng));
           if (!isNaN(hLat) && !isNaN(hLng)) {
-            svc.route(
-              { origin: { lat: incLat, lng: incLng }, destination: { lat: hLat, lng: hLng }, travelMode: google.maps.TravelMode.DRIVING },
-              (result, dirStatus) => {
-                if (!active) return;
-                if (dirStatus === 'OK' && result && mapRef.current) {
-                  const line = new google.maps.Polyline({
-                    map: mapRef.current,
-                    path: result.routes[0].overview_path,
-                    geodesic: true, strokeColor: '#107C10', strokeOpacity: 0.9, strokeWeight: 4,
-                  });
-                  routeLinesRef.current.push(line);
+            if (cachedRoutesRef.current[routeKey]) {
+              const line = new google.maps.Polyline({
+                map: mapRef.current,
+                path: cachedRoutesRef.current[routeKey],
+                geodesic: true, strokeColor: '#107C10', strokeOpacity: 0.9, strokeWeight: 4,
+              });
+              routeLinesRef.current.push(line);
+            } else {
+              svc.route(
+                { origin: { lat: incLat, lng: incLng }, destination: { lat: hLat, lng: hLng }, travelMode: google.maps.TravelMode.DRIVING },
+                (result, dirStatus) => {
+                  if (!active) return;
+                  if (dirStatus === 'OK' && result && mapRef.current) {
+                    const path = result.routes[0].overview_path.map(p => ({ lat: p.lat(), lng: p.lng() }));
+                    cachedRoutesRef.current[routeKey] = path;
+                    const line = new google.maps.Polyline({
+                      map: mapRef.current,
+                      path,
+                      geodesic: true, strokeColor: '#107C10', strokeOpacity: 0.9, strokeWeight: 4,
+                    });
+                    routeLinesRef.current.push(line);
+                  }
                 }
-              }
-            );
+              );
+            }
           }
         }
       }
