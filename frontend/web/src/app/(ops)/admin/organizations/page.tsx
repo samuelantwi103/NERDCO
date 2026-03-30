@@ -193,35 +193,11 @@ export default function OrganizationsPage() {
       // Add new markers
       orgs.forEach(org => {
         if (org.latitude && org.longitude) {
-          const meta = TYPE_META[org.type as OrgType];
-          
-          const pin = document.createElement('div');
-          pin.style.width = '32px'; pin.style.height = '32px';
-          pin.style.background = meta?.bg || '#fff';
-          pin.style.color = meta?.color || '#000';
-          pin.style.borderRadius = '50%';
-          pin.style.display = 'flex';
-          pin.style.alignItems = 'center';
-          pin.style.justifyContent = 'center';
-          pin.style.border = `2px solid ${meta?.color || '#000'}`;
-          pin.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
-          const emojiMap: Record<string, { emoji: string; label: string }> = {
-            hospital:          { emoji: '🏥', label: 'Hospital' },
-            ambulance_service: { emoji: '🚑', label: 'Ambulance' },
-            police_station:    { emoji: '🚓', label: 'Police Station' },
-            fire_station:      { emoji: '🚒', label: 'Fire Station' },
-          };
-          const emojiMeta = emojiMap[org.type] ?? { emoji: '📍', label: org.type };
-          pin.innerHTML = `<span role="img" aria-label="${emojiMeta.label}">${emojiMeta.emoji}</span>`;
-
-          const m = new window.google.maps.marker.AdvancedMarkerElement({
+          const m = new window.google.maps.marker.AdvancedMarkerElement({       
             map: mapObj.current!,
             position: { lat: parseFloat(org.latitude), lng: parseFloat(org.longitude) },
             title: org.name,
-            content: pin,
-          }) as any;
-          markersRef.current.push(m);
-        }
+            content: makeFacilityPin(org.type, org.name, false),
       });
       
       // Auto-fit bounds
