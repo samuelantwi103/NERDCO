@@ -94,12 +94,18 @@ export function DashboardDetail({ detail, vehicles, relatedIncidents, statusBusy
         );
     }
 
+    // Collect all dispatched units: parent incident + each related child
+    const allUnitIds = [
+        detail.assigned_unit_id,
+        ...(relatedIncidents ?? []).map((i: any) => i.assigned_unit_id),
+    ].filter(Boolean) as string[];
+
     const assignedVehicle = detail.assigned_unit_id
         ? vehicles.find(v => v.id === detail.assigned_unit_id)
         : null;
 
     const alternatives = vehicles
-        .filter(v => v.status === 'available' && v.id !== detail.assigned_unit_id)
+        .filter(v => v.status === 'available' && !allUnitIds.includes(v.id))
         .slice(0, 4);
 
     return (
@@ -138,16 +144,22 @@ export function DashboardDetail({ detail, vehicles, relatedIncidents, statusBusy
                     )}
                 </div>
 
-                {relatedIncidents && relatedIncidents.length > 0 && (
-                    <div style={{ marginTop: '16px', background: 'var(--color-bg)', padding: '12px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
-                        <span className={styles.unitLabel}>Related Units ({relatedIncidents.length})</span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
-                            {relatedIncidents.map(inc => (
-                                <div key={inc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', borderBottom: '1px solid var(--color-border)', paddingBottom: '6px' }}>
-                                    <span><IncidentStatusBadge status={inc.status} /></span>
-                                    <span style={{ fontWeight: 600 }}>{inc.assigned_unit_id ? vehicles.find(v => v.id === inc.assigned_unit_id)?.license_plate || inc.assigned_unit_id : 'Unassigned'}</span>
-                                </div>
-                            ))}
+                {/* MCI: all dispatched units (parent + children) */}
+                {allUnitIds.length > 1 && (
+                    <div style={{ background: 'var(--color-bg)', padding: '12px', borderRadius: '8px', border: '1px solid var(--color-border)' }}>
+                        <span className={styles.unitLabel}>Dispatched Units ({allUnitIds.length})</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '8px' }}>
+                            {[{ id: detail.id, assigned_unit_id: detail.assigned_unit_id, status: detail.status }, ...(relatedIncidents ?? [])].map((inc: any) => {
+                                const v = vehicles.find((x: any) => x.id === inc.assigned_unit_id);
+                                return (
+                                    <div key={inc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '13px', padding: '4px 0', borderBottom: '1px solid var(--color-border)' }}>
+                                        <IncidentStatusBadge status={inc.status} />
+                                        <span style={{ fontWeight: 600, marginLeft: '8px', flex: 1, textAlign: 'right' }}>
+                                            {v ? `${v.license_plate} · ${v.vehicle_type?.replace(/_/g, ' ')}` : (inc.assigned_unit_id ?? 'Unassigned')}
+                                        </span>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 )}

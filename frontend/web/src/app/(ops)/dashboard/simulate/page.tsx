@@ -162,8 +162,8 @@ export default function SimulatePage() {
     if (!selectedVehicle || !selectedIncident) return;
     stopTimer();
 
-    const vLat = selectedVehicle.latitude ?? DEFAULT_VEHICLE_POS.lat;
-    const vLng = selectedVehicle.longitude ?? DEFAULT_VEHICLE_POS.lng;
+    const vLat = parseFloat(selectedVehicle.latitude) || DEFAULT_VEHICLE_POS.lat;
+    const vLng = parseFloat(selectedVehicle.longitude) || DEFAULT_VEHICLE_POS.lng;
     const iLat = parseFloat(selectedIncident.latitude);
     const iLng = parseFloat(selectedIncident.longitude);
 
