@@ -95,17 +95,21 @@ function FleetDashboardContent() {
 
   if (!mounted || !user || user.role !== 'org_admin') return null;
 
-  // Filter incidents relevant to this org (vehicles belonging to this org)
-  const myIncidents = incidents.filter(i =>
-    vehicles.some(v => v.id === (i.assigned_unit_id || i.assigned_vehicle_id))
-  );
+  // Filter entities according to business rules
+  const mapFacilities = facilities.filter(f => f.id === user.org);
+  let mapVehicles: any[] = [];
+  let mapIncidents: any[] = [];
 
-  const available   = vehicles.filter(v => v.status === 'available').length;
-  const dispatched  = vehicles.filter(v => v.status === 'dispatched').length;
+  if (user.org_type === 'hospital') {
+    mapVehicles = vehicles.filter(v => v.vehicle_type === 'ambulance' || v.organization_type === 'ambulance_service');
+    mapIncidents = incidents.filter(i => i.destination_hospital_id === user.org);
+  } else {
+    mapVehicles = vehicles.filter(v => v.organization_id === user.org);
+    mapIncidents = incidents.filter(i => mapVehicles.some(v => v.id === (i.assigned_unit_id || i.assigned_vehicle_id)));
+  }
 
-  // Map shows only vehicles + incidents relevant to this org + all facilities
-  const mapVehicles  = vehicles;
-  const mapIncidents = myIncidents;
+  const available   = mapVehicles.filter(v => v.status === 'available').length;
+  const dispatched  = mapVehicles.filter(v => v.status === 'dispatched').length;
 
   const orgLabel: Record<string, string> = {
     hospital:          'Hospital Dashboard',
@@ -126,7 +130,7 @@ function FleetDashboardContent() {
           <DashboardMap
             incidents={mapIncidents}
             vehicles={mapVehicles}
-            facilities={facilities}
+            facilities={mapFacilities}
             selectedId={selectedIncId}
             onSelect={actions.setSelectedIncId}
             hidePOIs={true}
@@ -148,13 +152,13 @@ function FleetDashboardContent() {
             {dispatched} Dispatched
           </div>
           <div style={{ background: 'rgba(230,57,70,0.85)', color: '#fff', borderRadius: '8px', padding: '6px 12px', fontSize: '13px', fontWeight: 600 }}>
-            {myIncidents.filter(i => i.status !== 'resolved').length} Active incidents
+            {mapIncidents.filter(i => i.status !== 'resolved').length} Active incidents
           </div>
         </div>
 
         {/* Sidebar toggle */}
         <div
-          style={{ ...TOGGLE_STYLE, right: sidebarOpen ? '300px' : 0 }}
+          style={{ ...TOGGLE_STYLE, right: 0 }}
           onClick={() => setSidebarOpen(o => !o)}
           title={sidebarOpen ? 'Hide panel' : 'Show panel'}
         >
@@ -167,14 +171,14 @@ function FleetDashboardContent() {
         <aside className={styles.sidebar}>
           {/* Vehicles */}
           <div className={styles.sectionHead}>
-            Vehicles ({vehicles.length})
+            Vehicles ({mapVehicles.length})
           </div>
-          {vehicles.length === 0 ? (
+          {mapVehicles.length === 0 ? (
             <div style={{ padding: '12px 16px' }}>
               <EmptyState icon={<VehicleCarRegular />} title="No vehicles" description="Register vehicles from the Vehicles page." />
             </div>
           ) : (
-            vehicles.slice(0, 12).map(v => (
+            mapVehicles.slice(0, 12).map(v => (
               <div key={v.id} className={styles.vRow}>
                 <div>
                   <div style={{ fontWeight: 600 }}>{v.license_plate}</div>
@@ -187,17 +191,17 @@ function FleetDashboardContent() {
 
           {/* Incidents */}
           <div className={styles.sectionHead} style={{ marginTop: '8px' }}>
-            Active Incidents ({myIncidents.filter(i => i.status !== 'resolved').length})
+            Active Incidents ({mapIncidents.filter(i => i.status !== 'resolved').length})
           </div>
-          {myIncidents.filter(i => i.status !== 'resolved').length === 0 ? (
+          {mapIncidents.filter(i => i.status !== 'resolved').length === 0 ? (
             <div style={{ padding: '12px 16px' }}>
               <EmptyState icon={<AlertUrgentRegular />} title="All clear" description="No active incidents for your station." />
             </div>
           ) : (
-            myIncidents
+            mapIncidents
               .filter(i => i.status !== 'resolved')
               .map(inc => {
-                const v = vehicles.find(x => x.id === (inc.assigned_unit_id || inc.assigned_vehicle_id));
+                const v = mapVehicles.find(x => x.id === (inc.assigned_unit_id || inc.assigned_vehicle_id));
                 const isSelected = selectedIncId === inc.id;
                 return (
                   <div
