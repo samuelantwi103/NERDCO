@@ -140,7 +140,9 @@ async function stopSimulation(req: any, res: any) {
 }
 
 async function listActive(req: any, res: any) {
-  if (req.user.role !== 'system_admin') return res.status(403).json({ error: 'forbidden' });
+  if (req.user.role !== 'system_admin' && req.user.role !== 'first_responder') {
+    return res.status(403).json({ error: 'forbidden' });
+  }
   
   const payload = Array.from(activeSimulations.values()).map(s => ({
     vehicleId: s.vehicleId,

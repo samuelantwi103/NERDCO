@@ -272,16 +272,29 @@ function FieldIncidentContent() {
     }).catch(() => {});
   }, [incident]);
 
+  // Handle DirectionsRenderer cleanup on simulation change
+  useEffect(() => {
+    if (isUnderSimulation && directionsRendererRef.current) {
+      directionsRendererRef.current.setMap(null);
+      directionsRendererRef.current = null;
+      setNavInfo(null);
+    }
+  }, [isUnderSimulation]);
+
   // Update my-location marker + draw route (once)
   useEffect(() => {
     if (!mapReady || !mapRef.current || !myLocation || !window.google?.maps?.marker) return;
 
     // My location marker (hidden if simulation active)
-    if (isUnderSimulation) {
-      if (myLocMarkerRef.current) { myLocMarkerRef.current.map = null; myLocMarkerRef.current = null; }
-    } else if (myLocation) {
+    if (isUnderSimulation || !myLocation) {
+      if (myLocMarkerRef.current) {
+        myLocMarkerRef.current.setMap(null);
+        myLocMarkerRef.current = null;
+      }
+    } else {
         if (myLocMarkerRef.current) {
           myLocMarkerRef.current.position = myLocation;
+          if (!myLocMarkerRef.current.map) myLocMarkerRef.current.setMap(mapRef.current);
         } else {
           const myMarker = new google.maps.marker.AdvancedMarkerElement({
             position: myLocation,

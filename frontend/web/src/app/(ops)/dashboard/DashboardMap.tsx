@@ -554,7 +554,16 @@ export const DashboardMap = ({
 
   // ── My location marker ────────────────────────────────────────────────
   useEffect(() => {
-    if (!mapReady || !mapRef.current || !window.google?.maps?.marker || !myLocation) return;
+    if (!mapReady || !mapRef.current || !window.google?.maps?.marker) return;
+
+    if (!myLocation) {
+        if (myLocMarkerRef.current) {
+            myLocMarkerRef.current.map = null;
+            myLocMarkerRef.current = null;
+        }
+        return;
+    }
+
     if (myLocMarkerRef.current) {
       myLocMarkerRef.current.position = myLocation;
     } else {
