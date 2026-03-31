@@ -288,13 +288,13 @@ function FieldIncidentContent() {
     // My location marker (hidden if simulation active)
     if (isUnderSimulation || !myLocation) {
       if (myLocMarkerRef.current) {
-        myLocMarkerRef.current.setMap(null);
+        myLocMarkerRef.current.map = null;
         myLocMarkerRef.current = null;
       }
     } else {
         if (myLocMarkerRef.current) {
           myLocMarkerRef.current.position = myLocation;
-          if (!myLocMarkerRef.current.map) myLocMarkerRef.current.setMap(mapRef.current);
+          if (!myLocMarkerRef.current.map) myLocMarkerRef.current.map = mapRef.current;
         } else {
           const myMarker = new google.maps.marker.AdvancedMarkerElement({
             position: myLocation,
