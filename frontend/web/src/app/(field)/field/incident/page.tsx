@@ -165,6 +165,8 @@ function FieldIncidentContent() {
   const [supportType, setSupportType] = useState<string | null>(null);
   const [myLocation,  setMyLocation]  = useState<{lat: number, lng: number} | null>(null);
   const [isUnderSimulation, setIsUnderSimulation] = useState(false);
+  const [simPhase, setSimPhase] = useState<string | null>(null);
+  const [simDestinationName, setSimDestinationName] = useState<string | null>(null);
   const [myVehicle, setMyVehicle] = useState<any | null>(null);
 
   useEffect(() => {
@@ -184,23 +186,38 @@ function FieldIncidentContent() {
     if (user.role !== 'first_responder') router.replace('/dashboard');
   }, [user, router]);
 
-  // Eager simulation check
+  // Eager simulation check - also tracks phase + destination for route switching
   useEffect(() => {
     if (!token || !mounted) return;
     const checkSim = async () => {
       try {
         const data = await getActiveSimulations(token);
         const sims = data.simulations || data.active || [];
-        const isSim = sims.some((s: any) => s.vehicleId === myVehicle?.id);
+        const mySim = sims.find((s: any) => s.vehicleId === myVehicle?.id);
+        const isSim = !!mySim;
         if (isSim !== isUnderSimulation) setIsUnderSimulation(isSim);
+        if (mySim) {
+          const newPhase = mySim.phase ?? null;
+          if (newPhase !== simPhase) {
+            setSimPhase(newPhase);
+            // When phase switches to to_hospital, reset route so it redraws to hospital
+            if (newPhase === 'to_hospital') {
+              routeFetchedRef.current = false;
+              lastRouteFetchRef.current = 0;
+            }
+          }
+          if (mySim.destinationName) setSimDestinationName(mySim.destinationName);
+        } else {
+          setSimPhase(null);
+        }
       } catch (e) {
         // ignore errors
       }
     };
     checkSim();
-    const iv = setInterval(checkSim, 10000);
+    const iv = setInterval(checkSim, 5000);
     return () => clearInterval(iv);
-  }, [token, mounted, myVehicle?.id, isUnderSimulation]);
+  }, [token, mounted, myVehicle?.id, isUnderSimulation, simPhase]);
 
   // Load vehicles once for backup plate lookup
   useEffect(() => {
@@ -332,10 +349,13 @@ function FieldIncidentContent() {
     // Draw route periodically so the banner and track update
     if (incident && (incident.status === 'dispatched' || incident.status === 'in_progress')) {
       const currentOrigin = (isUnderSimulation && myVehicle) ? { lat: parseFloat(myVehicle.latitude), lng: parseFloat(myVehicle.longitude) } : myLocation;
-      const lat = parseFloat(incident.latitude);
-      const lng = parseFloat(incident.longitude);
 
-      if (!isNaN(lat) && !isNaN(lng) && currentOrigin && !isNaN(currentOrigin.lat)) {
+      // Destination: switch to hospital when driving to hospital phase
+      const isDrivingToHospital = simPhase === 'to_hospital' && simDestinationName;
+      const destLat = isDrivingToHospital ? null : parseFloat(incident.latitude);
+      const destLng = isDrivingToHospital ? null : parseFloat(incident.longitude);
+
+      if (currentOrigin && !isNaN(currentOrigin.lat)) {
         const now = Date.now();
         if (now - lastRouteFetchRef.current > 5000) {
           lastRouteFetchRef.current = now;
@@ -344,39 +364,45 @@ function FieldIncidentContent() {
             directionsRendererRef.current = new google.maps.DirectionsRenderer({
               map: mapRef.current!,
               suppressMarkers: true,
-              preserveViewport: true, // IMPORTANT: preserves user's zoom/pan
+              preserveViewport: true,
               polylineOptions: { strokeColor: '#4285F4', strokeWeight: 8, strokeOpacity: 0.9 },
             });
           }
-          
-          ds.route({
-            origin: currentOrigin,
-            destination: { lat, lng },
-            travelMode: google.maps.TravelMode.DRIVING,
-          }, (res, status) => {
-            if (status === 'OK' && res) {
-              directionsRendererRef.current!.setDirections(res);
-              if (!routeFetchedRef.current) {
-                routeFetchedRef.current = true;
-                mapRef.current!.setZoom(18);
-                mapRef.current!.panTo(currentOrigin);
+
+          const routeDestination: google.maps.DirectionsRequest['destination'] = isDrivingToHospital
+            ? simDestinationName! // geocode by hospital name
+            : { lat: destLat!, lng: destLng! };
+
+          if (isDrivingToHospital || (!isNaN(destLat!) && !isNaN(destLng!))) {
+            ds.route({
+              origin: currentOrigin,
+              destination: routeDestination,
+              travelMode: google.maps.TravelMode.DRIVING,
+            }, (res, status) => {
+              if (status === 'OK' && res) {
+                directionsRendererRef.current!.setDirections(res);
+                if (!routeFetchedRef.current) {
+                  routeFetchedRef.current = true;
+                  mapRef.current!.setZoom(18);
+                  mapRef.current!.panTo(currentOrigin!);
+                }
+                const route = res.routes[0];
+                const leg = route.legs[0];
+                const step = leg.steps[0];
+                setNavInfo({
+                  distance: leg.distance?.text,
+                  duration: leg.duration?.text,
+                  nextStepDist: step?.distance?.text,
+                  nextStepText: step?.instructions?.replace(/<[^>]*>?/gm, ''), // strip html
+                  maneuver: step?.maneuver
+                });
               }
-              const route = res.routes[0];
-              const leg = route.legs[0];
-              const step = leg.steps[0];
-              setNavInfo({
-                distance: leg.distance?.text,
-                duration: leg.duration?.text,
-                nextStepDist: step?.distance?.text,
-                nextStepText: step?.instructions?.replace(/<[^>]*>?/gm, ''), // strip html
-                maneuver: step?.maneuver
-              });
-            }
-          });
+            });
+          }
         }
       }
     }
-  }, [myLocation, myVehicle, mapReady, incident, isUnderSimulation]);
+  }, [myLocation, myVehicle, mapReady, incident, isUnderSimulation, simPhase, simDestinationName]);
 
   // Backup vehicle markers + Personal vehicle during simulation
   const myVehMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
