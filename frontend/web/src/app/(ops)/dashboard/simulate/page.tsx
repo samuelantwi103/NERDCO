@@ -247,6 +247,57 @@ export default function SimulatePage() {
     } catch {}
   }
 
+  async function previewTrackForSim(sim: any) {
+    setSelectedVehicleId(sim.vehicleId);
+    setSelectedIncidentId(sim.incidentId);
+    setPanelTab('dispatch'); // Switch back to dispatch view
+    setStatusMsg(`Generating preview track...`);
+    
+    const veh = liveVehicles.find(v => v.id === sim.vehicleId) || vehicles.find(v => v.id === sim.vehicleId);
+    const inc = incidents.find(i => i.id === sim.incidentId);
+    if (!veh || !inc) return;
+
+    const vLat = parseFloat(veh.latitude) || DEFAULT_VEHICLE_POS.lat;
+    const vLng = parseFloat(veh.longitude) || DEFAULT_VEHICLE_POS.lng;
+    const iLat = parseFloat(inc.latitude);
+    const iLng = parseFloat(inc.longitude);
+
+    const isMedical = veh.vehicle_type === 'ambulance' || veh.vehicle_type?.includes('medical');
+    let destinationLat = vLat;
+    let destinationLng = vLng;
+
+    if (isMedical && hospitals.length > 0) {
+      const hospital = hospitals.slice().sort((a,b) => haversine(iLat, iLng, a.lat, a.lng) - haversine(iLat, iLng, b.lat, b.lng))[0];
+      if (hospital) {
+        destinationLat = hospital.lat;
+        destinationLng = hospital.lng;
+      }
+    }
+
+    try {
+      await loadGoogleMaps(process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '');
+      const allWaypoints = await getDrivingRoute(
+        { lat: vLat, lng: vLng },
+        { lat: iLat, lng: iLng },
+        { lat: destinationLat, lng: destinationLng },
+      );
+
+      let splitIdx = 0;
+      let minDist = Infinity;
+      allWaypoints.forEach((p, idx) => {
+        const d = haversine(p.lat, p.lng, iLat, iLng);
+        if (d < minDist) { minDist = d; splitIdx = idx; }
+      });
+
+      setFullRoutePath(allWaypoints);
+      setRouteSplitIdx(splitIdx);
+      setStatusMsg('Track generated from vehicle position to destination.');
+    } catch(err) {
+      console.error(err);
+      setStatusMsg('Failed to generate track preview.');
+    }
+  }
+
   // ── Simulation runner ──────────────────────────────────────────────────
   async function startSimulation() {
     if (!selectedVehicle || !selectedIncident) return;
@@ -500,7 +551,7 @@ export default function SimulatePage() {
                         Abort
                       </Button>
                       <Button appearance="primary" icon={<ArrowForwardRegular />} onClick={resumeSimulation} style={{ minHeight: '48px', flex: 2 }}>
-                        Resume Journey
+                        {selectedVehicle?.vehicle_type === 'ambulance' || selectedVehicle?.vehicle_type?.includes('medical') ? 'Drive to Hospital' : 'Resume Journey'}
                       </Button>
                     </div>
                   </div>
@@ -568,8 +619,8 @@ export default function SimulatePage() {
                       return (
                         <div key={i} style={{ background: 'var(--color-surface)', border: `1px solid ${isAtScene ? 'var(--color-accent)' : 'var(--color-border)'}`, borderRadius: 'var(--radius-md)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                           {/* Header row */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Text weight="semibold" style={{ fontSize: '13px' }}>{veh?.license_plate || sim.vehicleId.slice(0, 8)}</Text>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }} onClick={() => previewTrackForSim(sim)}>
+                            <Text weight="semibold" style={{ fontSize: '13px', textDecoration: 'underline', color: 'var(--color-brand)' }}>{veh?.license_plate || sim.vehicleId.slice(0, 8)}</Text>
                             <Badge appearance="filled" color={sim.phase === 'at_scene' ? 'severe' : 'warning'} size="small">{sim.phase.replace(/_/g, ' ')}</Badge>
                           </div>
 
@@ -611,7 +662,7 @@ export default function SimulatePage() {
                                 </Button>
                               )}
 
-                              {/* at_scene (paused) → Resume Journey */}
+                              {/* at_scene (paused) → Resume Journey / Drive to Hospital */}
                               {sim.phase === 'at_scene' && (
                                 <Button
                                   appearance="primary"
@@ -621,7 +672,7 @@ export default function SimulatePage() {
                                     await resumeSimulationRun(token, sim.vehicleId);
                                   }}
                                 >
-                                  Resume Journey
+                                  {sim.isMedical ? 'Drive to Hospital' : 'Resume Journey'}
                                 </Button>
                               )}
 
