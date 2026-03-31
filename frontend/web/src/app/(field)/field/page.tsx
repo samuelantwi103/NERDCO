@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Text, Button, Spinner, makeStyles } from '@fluentui/react-components';
-import { SignOutRegular, AlertUrgentRegular, PersonRegular } from '@fluentui/react-icons';
+import { SignOutRegular, AlertUrgentRegular, PersonRegular, VehicleCarRegular } from '@fluentui/react-icons';
 import { useAuth } from '@/lib/context/AuthContext';
 import { useAutoRefresh } from '@/lib/hooks/useAutoRefresh';
 import { POLLING } from '@/lib/config/polling';
@@ -13,7 +13,6 @@ import { IncidentStatusBadge } from '@/components/StatusBadge';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DashboardMap } from '@/app/(ops)/dashboard/DashboardMap';
-import { VehicleIcon } from '@/components/icons/VehicleIcon';
 
 const useStyles = makeStyles({
   page: {
@@ -194,7 +193,7 @@ export default function FieldPage() {
           <Text as="p" className={styles.userName}>{user?.name}</Text>
           {myVehicle && (
               <div className={styles.vehiclePill} style={{ background: isUnderSimulation ? '#FF8C00' : '#005953' }}>
-                  <VehicleIcon type={myVehicle.vehicle_type} color="#fff" size={12} />
+                  <VehicleCarRegular style={{ fontSize: '12px' }} />
                   <span>{myVehicle.license_plate}</span>
                   {isUnderSimulation && <span style={{ marginLeft: '4px', opacity: 0.8 }}>· SIM</span>}
               </div>
