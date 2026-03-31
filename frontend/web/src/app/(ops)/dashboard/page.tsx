@@ -70,9 +70,15 @@ function DashboardContent() {
     if (user.org_type === 'ambulance_service') {
       visibleVehicles = visibleVehicles.filter(v => v.status !== 'available');
     } else if (user.org_type === 'hospital') {
-      visibleIncidents = visibleIncidents.filter(i => i.destination_facility_id === user.org);
-      const incomingIncidentIds = new Set(visibleIncidents.map(i => i.id));
-      visibleVehicles = visibleVehicles.filter(v => v.current_incident_id && incomingIncidentIds.has(v.current_incident_id));
+      // Show incidents dispatched/en-route to this hospital
+      visibleIncidents = visibleIncidents.filter(
+        i => i.destination_hospital_id === user.org || i.destination_facility_id === user.org
+      );
+      // Show the vehicles assigned to those incidents (covers en-route + in_progress)
+      const linkedVehicleIds = new Set(
+        visibleIncidents.map(i => i.assigned_unit_id ?? i.assigned_vehicle_id).filter(Boolean)
+      );
+      visibleVehicles = visibleVehicles.filter(v => linkedVehicleIds.has(v.id));
     }
   }
 
