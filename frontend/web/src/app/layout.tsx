@@ -7,11 +7,14 @@ export const metadata: Metadata = {
   description: "NERDCO Emergency Operations Platform",
 };
 
+import { ServiceHealthOverlay } from "@/components/ServiceHealthOverlay";
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
         <Providers>{children}</Providers>
+        <ServiceHealthOverlay />
       </body>
     </html>
   );
