@@ -9,7 +9,7 @@ import { POLLING } from '@/lib/config/polling';
 import {
   getIncident, updateIncidentStatus, requestSupport, getRelatedIncidents,
 } from '@/lib/api/incidents';
-import { listVehicles, getActiveSimulations } from '@/lib/api/tracking';
+import { listVehicles, getActiveSimulations, resumeSimulationRun } from '@/lib/api/tracking';
 import { loadGoogleMaps } from '@/lib/maps/loader';
 import { consumeMapLoad } from '@/lib/maps/quota';
 import { showInfoPopup, dismissInfoPopup } from '@/lib/maps/infoPopup';
@@ -672,7 +672,18 @@ function FieldIncidentContent() {
             <Button
               appearance="secondary"
               style={{ width: '100%', minHeight: '48px', fontSize: '15px', borderColor: 'var(--color-medical)', color: 'var(--color-medical)' }}
-              onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(incident.destination_hospital_name)}`, '_blank')}
+              disabled={acting}
+              onClick={() => {
+                if (isUnderSimulation && myVehicle?.id) {
+                  setActing(true);
+                  setError('');
+                  resumeSimulationRun(token, myVehicle.id)
+                    .catch((err: any) => setError(err?.response?.data?.message ?? 'Failed to resume simulation'))
+                    .finally(() => setActing(false));
+                } else {
+                  window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(incident.destination_hospital_name)}`, '_blank');
+                }
+              }}
             >
               Drive to Hospital
             </Button>
