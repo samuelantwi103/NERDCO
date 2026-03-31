@@ -107,7 +107,9 @@ function startTimer(state: SimulationState) {
 }
 
 async function resumeSimulation(req: any, res: any) {
-  if (req.user.role !== 'system_admin') return res.status(403).json({ error: 'forbidden' });
+  if (req.user.role !== 'system_admin' && req.user.role !== 'first_responder') {
+    return res.status(403).json({ error: 'forbidden' });
+  }
   const { id: vehicleId } = req.params;
 
   if (!activeSimulations.has(vehicleId)) {
