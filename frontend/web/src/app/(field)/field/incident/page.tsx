@@ -9,11 +9,11 @@ import { POLLING } from '@/lib/config/polling';
 import {
   getIncident, updateIncidentStatus, requestSupport, getRelatedIncidents,
 } from '@/lib/api/incidents';
-import { listVehicles, getActiveSimulations, resumeSimulationRun } from '@/lib/api/tracking';
+import { listVehicles } from '@/lib/api/tracking';
 import { loadGoogleMaps } from '@/lib/maps/loader';
 import { consumeMapLoad } from '@/lib/maps/quota';
 import { showInfoPopup, dismissInfoPopup } from '@/lib/maps/infoPopup';
-import { makeIncidentPin, makeMyLocationPin, makeVehiclePin, INCIDENT_COLOR } from '@/app/(ops)/dashboard/DashboardMap';
+import { makeIncidentPin, makeMyLocationPin, INCIDENT_COLOR } from '@/app/(ops)/dashboard/DashboardMap';
 import { IncidentTypeChip }    from '@/components/IncidentTypeChip';
 import { IncidentStatusBadge } from '@/components/StatusBadge';
 import { ErrorState } from '@/components/ui/ErrorState';
@@ -135,8 +135,6 @@ function FieldIncidentContent() {
   const [navInfo, setNavInfo] = useState<any>(null);
   const routeFetchedRef = useRef(false);
   const popupRef        = useRef<HTMLElement | null>(null);
-  const lastInteractionRef = useRef(0);
-  const lastRouteFetchRef = useRef(0);
 
   const getManeuverIcon = (maneuver?: string) => {
     if (!maneuver) return <ArrowUpRegular fontSize={32} />;
@@ -164,10 +162,6 @@ function FieldIncidentContent() {
   const [error,       setError]       = useState('');
   const [supportType, setSupportType] = useState<string | null>(null);
   const [myLocation,  setMyLocation]  = useState<{lat: number, lng: number} | null>(null);
-  const [isUnderSimulation, setIsUnderSimulation] = useState(false);
-  const [simPhase, setSimPhase] = useState<string | null>(null);
-  const [simDestinationName, setSimDestinationName] = useState<string | null>(null);
-  const [myVehicle, setMyVehicle] = useState<any | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -186,39 +180,6 @@ function FieldIncidentContent() {
     if (user.role !== 'first_responder') router.replace('/dashboard');
   }, [user, router]);
 
-  // Eager simulation check - also tracks phase + destination for route switching
-  useEffect(() => {
-    if (!token || !mounted) return;
-    const checkSim = async () => {
-      try {
-        const data = await getActiveSimulations(token);
-        const sims = data.simulations || data.active || [];
-        const mySim = sims.find((s: any) => s.vehicleId === myVehicle?.id);
-        const isSim = !!mySim;
-        if (isSim !== isUnderSimulation) setIsUnderSimulation(isSim);
-        if (mySim) {
-          const newPhase = mySim.phase ?? null;
-          if (newPhase !== simPhase) {
-            setSimPhase(newPhase);
-            // When phase switches to to_hospital, reset route so it redraws to hospital
-            if (newPhase === 'to_hospital') {
-              routeFetchedRef.current = false;
-              lastRouteFetchRef.current = 0;
-            }
-          }
-          if (mySim.destinationName) setSimDestinationName(mySim.destinationName);
-        } else {
-          setSimPhase(null);
-        }
-      } catch (e) {
-        // ignore errors
-      }
-    };
-    checkSim();
-    const iv = setInterval(checkSim, 5000);
-    return () => clearInterval(iv);
-  }, [token, mounted, myVehicle?.id, isUnderSimulation, simPhase]);
-
   // Load vehicles once for backup plate lookup
   useEffect(() => {
     if (!token) return;
@@ -234,11 +195,7 @@ function FieldIncidentContent() {
     ]);
     setIncident(inc);
     setRelated(rel);
-    if (veh && veh.length > 0) {
-      setVehicles(veh);
-      const mine = (veh as any[]).find(v => v.driver_user_id === user?.id);
-      setMyVehicle(mine ?? null);
-    }
+    if (veh && veh.length > 0) setVehicles(veh);
     setLoading(false);
   }, POLLING.FIELD);
 
@@ -261,8 +218,6 @@ function FieldIncidentContent() {
         zoomControl: false,
       });
       map.addListener('click', () => dismissInfoPopup(popupRef));
-      map.addListener('dragstart', () => { lastInteractionRef.current = Date.now(); });
-      map.addListener('zoom_changed', () => { lastInteractionRef.current = Date.now(); });
       mapRef.current = map;
 
       const incType = (incident.incident_type ?? '').toLowerCase();
@@ -293,141 +248,79 @@ function FieldIncidentContent() {
     }).catch(() => {});
   }, [incident]);
 
-  // Removed DirectionsRenderer cleanup; we want the track to outline the path to the incident
-  // even under simulation, as requested by the user.
-
-  // Auto-recenter ticking
-  useEffect(() => {
-    const iv = setInterval(() => {
-      if (Date.now() - lastInteractionRef.current > 5000) {
-        const curr = (isUnderSimulation && myVehicle) ? { lat: parseFloat(myVehicle.latitude), lng: parseFloat(myVehicle.longitude) } : myLocation;
-        if (curr && !isNaN(curr.lat) && mapRef.current) {
-          mapRef.current.panTo(curr);
-        }
-      }
-    }, 1000);
-    return () => clearInterval(iv);
-  }, [isUnderSimulation, myVehicle, myLocation]);
-
   // Update my-location marker + draw route (once)
   useEffect(() => {
     if (!mapReady || !mapRef.current || !myLocation || !window.google?.maps?.marker) return;
 
-    // My location marker (hidden if simulation active)
-    if (isUnderSimulation || !myLocation) {
-      if (myLocMarkerRef.current) {
-        myLocMarkerRef.current.map = null;
-        myLocMarkerRef.current = null;
-      }
+    // My location marker
+    if (myLocMarkerRef.current) {
+      myLocMarkerRef.current.position = myLocation;
     } else {
-        if (myLocMarkerRef.current) {
-          myLocMarkerRef.current.position = myLocation;
-          if (!myLocMarkerRef.current.map) myLocMarkerRef.current.map = mapRef.current;
-        } else {
-          const myMarker = new google.maps.marker.AdvancedMarkerElement({
-            position: myLocation,
-            map: mapRef.current,
-            title: 'My location',
-            content: makeMyLocationPin(),
-            zIndex: 999,
-          });
-          myMarker.addListener('gmp-click', () => {
-            if (mapContainerRef.current && mapRef.current) {
-              showInfoPopup(mapContainerRef.current, myMarker, mapRef.current, {
-                title: 'Your location',
-                lines: [
-                  `Lat: ${myLocation.lat.toFixed(5)}`,
-                  `Lng: ${myLocation.lng.toFixed(5)}`,
-                ],
-              }, popupRef);
-            }
-          });
-          myLocMarkerRef.current = myMarker;
+      const myMarker = new google.maps.marker.AdvancedMarkerElement({
+        position: myLocation,
+        map: mapRef.current,
+        title: 'My location',
+        content: makeMyLocationPin(),
+        zIndex: 999,
+      });
+      myMarker.addListener('gmp-click', () => {
+        if (mapContainerRef.current && mapRef.current) {
+          showInfoPopup(mapContainerRef.current, myMarker, mapRef.current, {
+            title: 'Your location',
+            lines: [
+              `Lat: ${myLocation.lat.toFixed(5)}`,
+              `Lng: ${myLocation.lng.toFixed(5)}`,
+            ],
+          }, popupRef);
         }
+      });
+      myLocMarkerRef.current = myMarker;
     }
 
-    // Draw route periodically so the banner and track update
-    if (incident && (incident.status === 'dispatched' || incident.status === 'in_progress')) {
-      const currentOrigin = (isUnderSimulation && myVehicle) ? { lat: parseFloat(myVehicle.latitude), lng: parseFloat(myVehicle.longitude) } : myLocation;
-
-      // Destination: switch to hospital when driving to hospital phase
-      const isDrivingToHospital = simPhase === 'to_hospital' && simDestinationName;
-      const destLat = isDrivingToHospital ? null : parseFloat(incident.latitude);
-      const destLng = isDrivingToHospital ? null : parseFloat(incident.longitude);
-
-      if (currentOrigin && !isNaN(currentOrigin.lat)) {
-        const now = Date.now();
-        if (now - lastRouteFetchRef.current > 5000) {
-          lastRouteFetchRef.current = now;
-          const ds = new google.maps.DirectionsService();
-          if (!directionsRendererRef.current) {
-            directionsRendererRef.current = new google.maps.DirectionsRenderer({
-              map: mapRef.current!,
-              suppressMarkers: true,
-              preserveViewport: true,
-              polylineOptions: { strokeColor: '#4285F4', strokeWeight: 8, strokeOpacity: 0.9 },
+    // Draw route once per incident load
+    if (!routeFetchedRef.current && incident && (incident.status === 'dispatched' || incident.status === 'in_progress')) {
+      routeFetchedRef.current = true;
+      const lat = parseFloat(incident.latitude);
+      const lng = parseFloat(incident.longitude);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        const ds = new google.maps.DirectionsService();
+        const dr = new google.maps.DirectionsRenderer({
+          map: mapRef.current!,
+          suppressMarkers: true,
+          preserveViewport: true,
+          polylineOptions: { strokeColor: '#4285F4', strokeWeight: 8, strokeOpacity: 0.9 },
+        });
+        directionsRendererRef.current = dr;
+        
+        ds.route({
+          origin: myLocation,
+          destination: { lat, lng },
+          travelMode: google.maps.TravelMode.DRIVING,
+        }, (res, status) => {
+          if (status === 'OK' && res) {
+            dr.setDirections(res);
+            mapRef.current!.setZoom(18);
+            mapRef.current!.panTo(myLocation);
+            
+            const route = res.routes[0];
+            const leg = route.legs[0];
+            const step = leg.steps[0];
+            setNavInfo({
+              distance: leg.distance?.text,
+              duration: leg.duration?.text,
+              nextStepDist: step?.distance?.text,
+              nextStepText: step?.instructions?.replace(/<[^>]*>?/gm, ''), // strip html
+              maneuver: step?.maneuver
             });
           }
-
-          const routeDestination: google.maps.DirectionsRequest['destination'] = isDrivingToHospital
-            ? simDestinationName! // geocode by hospital name
-            : { lat: destLat!, lng: destLng! };
-
-          if (isDrivingToHospital || (!isNaN(destLat!) && !isNaN(destLng!))) {
-            ds.route({
-              origin: currentOrigin,
-              destination: routeDestination,
-              travelMode: google.maps.TravelMode.DRIVING,
-            }, (res, status) => {
-              if (status === 'OK' && res) {
-                directionsRendererRef.current!.setDirections(res);
-                if (!routeFetchedRef.current) {
-                  routeFetchedRef.current = true;
-                  mapRef.current!.setZoom(18);
-                  mapRef.current!.panTo(currentOrigin!);
-                }
-                const route = res.routes[0];
-                const leg = route.legs[0];
-                const step = leg.steps[0];
-                setNavInfo({
-                  distance: leg.distance?.text,
-                  duration: leg.duration?.text,
-                  nextStepDist: step?.distance?.text,
-                  nextStepText: step?.instructions?.replace(/<[^>]*>?/gm, ''), // strip html
-                  maneuver: step?.maneuver
-                });
-              }
-            });
-          }
-        }
+        });
       }
     }
-  }, [myLocation, myVehicle, mapReady, incident, isUnderSimulation, simPhase, simDestinationName]);
+  }, [myLocation, mapReady, incident]);
 
-  // Backup vehicle markers + Personal vehicle during simulation
-  const myVehMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
+  // Backup vehicle markers
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.google?.maps?.marker) return;
-
-    // Handle personal vehicle marker (simulation only)
-    if (isUnderSimulation && myVehicle && myVehicle.latitude && myVehicle.longitude) {
-        const pos = { lat: parseFloat(myVehicle.latitude), lng: parseFloat(myVehicle.longitude) };
-        if (!isNaN(pos.lat) && !isNaN(pos.lng)) {
-            const pin = makeVehiclePin(myVehicle.status, true, true);
-            if (myVehMarkerRef.current) {
-                myVehMarkerRef.current.position = pos;
-                myVehMarkerRef.current.content = pin;
-            } else {
-                myVehMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
-                    position: pos, map: mapRef.current, title: myVehicle.license_plate, content: pin, zIndex: 1000
-                });
-            }
-        }
-    } else if (myVehMarkerRef.current) {
-        myVehMarkerRef.current.map = null;
-        myVehMarkerRef.current = null;
-    }
-
     // Clear old backup markers
     backupMarkersRef.current.forEach(m => { m.map = null; });
     backupMarkersRef.current = [];
@@ -459,7 +352,7 @@ function FieldIncidentContent() {
       });
       backupMarkersRef.current.push(m);
     });
-  }, [related, vehicles, mapReady, isUnderSimulation, myVehicle]);
+  }, [related, vehicles, mapReady]);
 
   async function handleStatusUpdate(newStatus: 'in_progress' | 'resolved') {
     setError('');
@@ -561,18 +454,10 @@ function FieldIncidentContent() {
                 <span style={{ width: 10, height: 10, borderRadius: '50%', background: INCIDENT_COLOR[(incident.incident_type ?? '').toLowerCase()] ?? '#888', display: 'inline-block', border: '1.5px solid #fff' }} />
                 <span>Incident</span>
               </div>
-              {!isUnderSimulation && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#4285F4', display: 'inline-block', border: '1.5px solid #fff' }} />
-                    <span>My location</span>
-                </div>
-              )}
-              {isUnderSimulation && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                    <span style={{ width: 10, height: 10, borderRadius: '3px', background: '#FF8C00', display: 'inline-block', border: '1.5px solid #4285F4' }} />
-                    <span style={{ fontWeight: 600, color: '#4285F4' }}>YOU (SIM)</span>
-                </div>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#4285F4', display: 'inline-block', border: '1.5px solid #fff' }} />
+                <span>My location</span>
+              </div>
               {related.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#0097A7', display: 'inline-block', border: '1.5px solid #fff' }} />
@@ -716,18 +601,7 @@ function FieldIncidentContent() {
             <Button
               appearance="secondary"
               style={{ width: '100%', minHeight: '48px', fontSize: '15px', borderColor: 'var(--color-medical)', color: 'var(--color-medical)' }}
-              disabled={acting}
-              onClick={() => {
-                if (isUnderSimulation && myVehicle?.id) {
-                  setActing(true);
-                  setError('');
-                  resumeSimulationRun(token, myVehicle.id)
-                    .catch((err: any) => setError(err?.response?.data?.message ?? 'Failed to resume simulation'))
-                    .finally(() => setActing(false));
-                } else {
-                  window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(incident.destination_hospital_name)}`, '_blank');
-                }
-              }}
+              onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(incident.destination_hospital_name)}`, '_blank')}
             >
               Drive to Hospital
             </Button>
