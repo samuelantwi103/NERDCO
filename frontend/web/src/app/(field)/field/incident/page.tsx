@@ -135,6 +135,8 @@ function FieldIncidentContent() {
   const [navInfo, setNavInfo] = useState<any>(null);
   const routeFetchedRef = useRef(false);
   const popupRef        = useRef<HTMLElement | null>(null);
+  const lastInteractionRef = useRef(0);
+  const lastRouteFetchRef = useRef(0);
 
   const getManeuverIcon = (maneuver?: string) => {
     if (!maneuver) return <ArrowUpRegular fontSize={32} />;
@@ -242,6 +244,8 @@ function FieldIncidentContent() {
         zoomControl: false,
       });
       map.addListener('click', () => dismissInfoPopup(popupRef));
+      map.addListener('dragstart', () => { lastInteractionRef.current = Date.now(); });
+      map.addListener('zoom_changed', () => { lastInteractionRef.current = Date.now(); });
       mapRef.current = map;
 
       const incType = (incident.incident_type ?? '').toLowerCase();
@@ -274,6 +278,19 @@ function FieldIncidentContent() {
 
   // Removed DirectionsRenderer cleanup; we want the track to outline the path to the incident
   // even under simulation, as requested by the user.
+
+  // Auto-recenter ticking
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (Date.now() - lastInteractionRef.current > 5000) {
+        const curr = (isUnderSimulation && myVehicle) ? { lat: parseFloat(myVehicle.latitude), lng: parseFloat(myVehicle.longitude) } : myLocation;
+        if (curr && !isNaN(curr.lat) && mapRef.current) {
+          mapRef.current.panTo(curr);
+        }
+      }
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [isUnderSimulation, myVehicle, myLocation]);
 
   // Update my-location marker + draw route (once)
   useEffect(() => {
@@ -312,47 +329,54 @@ function FieldIncidentContent() {
         }
     }
 
-    // Draw route once per incident load
-    // We fetch the route even in simulation so the responder can see the path
-    if (!routeFetchedRef.current && incident && (incident.status === 'dispatched' || incident.status === 'in_progress')) {
-      routeFetchedRef.current = true;
+    // Draw route periodically so the banner and track update
+    if (incident && (incident.status === 'dispatched' || incident.status === 'in_progress')) {
+      const currentOrigin = (isUnderSimulation && myVehicle) ? { lat: parseFloat(myVehicle.latitude), lng: parseFloat(myVehicle.longitude) } : myLocation;
       const lat = parseFloat(incident.latitude);
       const lng = parseFloat(incident.longitude);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        const ds = new google.maps.DirectionsService();
-        const dr = new google.maps.DirectionsRenderer({
-          map: mapRef.current!,
-          suppressMarkers: true,
-          preserveViewport: true,
-          polylineOptions: { strokeColor: '#4285F4', strokeWeight: 8, strokeOpacity: 0.9 },
-        });
-        directionsRendererRef.current = dr;
-        
-        ds.route({
-          origin: myLocation,
-          destination: { lat, lng },
-          travelMode: google.maps.TravelMode.DRIVING,
-        }, (res, status) => {
-          if (status === 'OK' && res) {
-            dr.setDirections(res);
-            mapRef.current!.setZoom(18);
-            mapRef.current!.panTo(myLocation);
-            
-            const route = res.routes[0];
-            const leg = route.legs[0];
-            const step = leg.steps[0];
-            setNavInfo({
-              distance: leg.distance?.text,
-              duration: leg.duration?.text,
-              nextStepDist: step?.distance?.text,
-              nextStepText: step?.instructions?.replace(/<[^>]*>?/gm, ''), // strip html
-              maneuver: step?.maneuver
+
+      if (!isNaN(lat) && !isNaN(lng) && currentOrigin && !isNaN(currentOrigin.lat)) {
+        const now = Date.now();
+        if (now - lastRouteFetchRef.current > 5000) {
+          lastRouteFetchRef.current = now;
+          const ds = new google.maps.DirectionsService();
+          if (!directionsRendererRef.current) {
+            directionsRendererRef.current = new google.maps.DirectionsRenderer({
+              map: mapRef.current!,
+              suppressMarkers: true,
+              preserveViewport: true, // IMPORTANT: preserves user's zoom/pan
+              polylineOptions: { strokeColor: '#4285F4', strokeWeight: 8, strokeOpacity: 0.9 },
             });
           }
-        });
+          
+          ds.route({
+            origin: currentOrigin,
+            destination: { lat, lng },
+            travelMode: google.maps.TravelMode.DRIVING,
+          }, (res, status) => {
+            if (status === 'OK' && res) {
+              directionsRendererRef.current!.setDirections(res);
+              if (!routeFetchedRef.current) {
+                routeFetchedRef.current = true;
+                mapRef.current!.setZoom(18);
+                mapRef.current!.panTo(currentOrigin);
+              }
+              const route = res.routes[0];
+              const leg = route.legs[0];
+              const step = leg.steps[0];
+              setNavInfo({
+                distance: leg.distance?.text,
+                duration: leg.duration?.text,
+                nextStepDist: step?.distance?.text,
+                nextStepText: step?.instructions?.replace(/<[^>]*>?/gm, ''), // strip html
+                maneuver: step?.maneuver
+              });
+            }
+          });
+        }
       }
     }
-  }, [myLocation, mapReady, incident, isUnderSimulation]);
+  }, [myLocation, myVehicle, mapReady, incident, isUnderSimulation]);
 
   // Backup vehicle markers + Personal vehicle during simulation
   const myVehMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
