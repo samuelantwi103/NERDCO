@@ -1,19 +1,20 @@
 import { useState, useCallback, useEffect } from 'react';
-import { listOpenIncidents, getIncident, reassignIncident, updateIncidentStatus } from '@/lib/api/incidents';
+import { listOpenIncidents, getIncident, getRelatedIncidents, reassignIncident, updateIncidentStatus } from '@/lib/api/incidents';
 import { listVehicles } from '@/lib/api/tracking';
 import { listOrganizations } from '@/lib/api/auth';
 import { useAutoRefresh } from '@/lib/hooks/useAutoRefresh';
 import { POLLING } from '@/lib/config/polling';
 
 export function useDashboardState(token: string, notify?: { success: (title: string, msg: string) => void }) {
-  const [incidents,     setIncidents]     = useState<any[]>([]);
-  const [vehicles,      setVehicles]      = useState<any[]>([]);
-  const [organizations, setOrganizations] = useState<any[]>([]);
-  const [selectedId,    setSelectedId]    = useState<string | null>(null);
-  const [detail,        setDetail]        = useState<any | null>(null);
-  const [statusBusy,    setStatusBusy]    = useState(false);
-  const [overriding,    setOverriding]    = useState(false);
-  const [error,         setError]         = useState<string | null>(null);
+  const [incidents,         setIncidents]         = useState<any[]>([]);
+  const [vehicles,          setVehicles]          = useState<any[]>([]);
+  const [organizations,     setOrganizations]     = useState<any[]>([]);
+  const [selectedId,        setSelectedId]        = useState<string | null>(null);
+  const [detail,            setDetail]            = useState<any | null>(null);
+  const [relatedIncidents,  setRelatedIncidents]  = useState<any[]>([]);
+  const [statusBusy,        setStatusBusy]        = useState(false);
+  const [overriding,        setOverriding]        = useState(false);
+  const [error,             setError]             = useState<string | null>(null);
 
   // Fetch organizations once on mount (used for facility markers + hospital routing)
   useEffect(() => {
@@ -42,6 +43,7 @@ export function useDashboardState(token: string, notify?: { success: (title: str
 
   const selectIncident = useCallback(async (id: string) => {
     setSelectedId(id);
+    setRelatedIncidents([]);
     if (token) {
       const data = await getIncident(token, id);
       if (data.status === 'resolved' || data.status === 'cancelled') {
@@ -49,6 +51,11 @@ export function useDashboardState(token: string, notify?: { success: (title: str
       } else {
         setDetail(data);
       }
+      // Fetch child incidents for MCI events
+      try {
+        const related = await getRelatedIncidents(token, id);
+        setRelatedIncidents(related);
+      } catch { /* not MCI or no children */ }
     }
   }, [token]);
 
@@ -74,9 +81,22 @@ export function useDashboardState(token: string, notify?: { success: (title: str
     } finally { setOverriding(false); }
   }, [detail, token]);
 
+  const handleOverrideForIncident = useCallback(async (incidentId: string, vehicleId: string) => {
+    if (!token) return;
+    setOverriding(true);
+    try {
+      await reassignIncident(token, incidentId, vehicleId);
+      // Refresh child incidents list
+      if (selectedId) {
+        const related = await getRelatedIncidents(token, selectedId);
+        setRelatedIncidents(related);
+      }
+    } finally { setOverriding(false); }
+  }, [token, selectedId]);
+
   return {
-    incidents, vehicles, organizations, selectedId, detail,
+    incidents, vehicles, organizations, selectedId, detail, relatedIncidents,
     statusBusy, overriding, error,
-    selectIncident, handleStatusUpdate, handleOverride,
+    selectIncident, handleStatusUpdate, handleOverride, handleOverrideForIncident,
   };
 }

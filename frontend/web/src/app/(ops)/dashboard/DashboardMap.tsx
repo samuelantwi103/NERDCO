@@ -457,9 +457,6 @@ export const DashboardMap = ({
 
     const selectedInc = incidents.find(i => i.id === selectedId);
     if (!selectedInc) return;
-    const incLat = parseFloat(selectedInc.latitude);
-    const incLng = parseFloat(selectedInc.longitude);
-    if (isNaN(incLat) || isNaN(incLng)) return;
 
     const svc = new google.maps.DirectionsService();
 
@@ -473,6 +470,11 @@ export const DashboardMap = ({
       if (!vehicle) return;
       const vLat = parseFloat(vehicle.latitude); const vLng = parseFloat(vehicle.longitude);
       if (isNaN(vLat) || isNaN(vLng)) return;
+
+      // Each incident uses its own location as the destination (critical for MCI children)
+      const incLat = parseFloat(inc.latitude);
+      const incLng = parseFloat(inc.longitude);
+      if (isNaN(incLat) || isNaN(incLng)) return;
 
       const status = inc.status;
       const isEnRoute  = status === 'dispatched';

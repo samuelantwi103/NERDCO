@@ -45,9 +45,9 @@ function DashboardContent() {
   const [detailOpen, setDetailOpen] = useState(false);
 
   const {
-    incidents, vehicles, organizations, selectedId, detail,
+    incidents, vehicles, organizations, selectedId, detail, relatedIncidents,
     statusBusy, overriding, error,
-    selectIncident, handleStatusUpdate, handleOverride,
+    selectIncident, handleStatusUpdate, handleOverride, handleOverrideForIncident,
   } = useDashboardState(token, { success: notifySuccess });
 
   // Filter data based on user role and organization
@@ -76,9 +76,12 @@ function DashboardContent() {
     }
   }
 
-  // Handle selected incident filtering for map display
+  // When an incident is selected, include it + all its MCI children on the map
   if (selectedId && detail) {
-    visibleIncidents = visibleIncidents.filter(i => i.id === selectedId || i.parent_incident_id === detail.id);
+    const baseFiltered = visibleIncidents.filter(i => i.id === selectedId);
+    // Merge in relatedIncidents (child incidents fetched from API) so the map sees all MCI vehicles
+    const childrenOnMap = relatedIncidents.filter(c => !baseFiltered.some(b => b.id === c.id));
+    visibleIncidents = [...baseFiltered, ...childrenOnMap];
   }
 
   // Auto-select a highlighted incident (e.g. redirected from duplicate detection)
@@ -171,7 +174,8 @@ function DashboardContent() {
               overriding={overriding}
               onStatusUpdate={handleStatusUpdate}
               onOverride={handleOverride}
-              relatedIncidents={incidents.filter(i => i.parent_incident_id === detail?.id)}
+              onOverrideForIncident={handleOverrideForIncident}
+              relatedIncidents={relatedIncidents}
             />
           </div>
         )}

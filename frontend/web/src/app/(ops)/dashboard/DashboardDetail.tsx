@@ -65,9 +65,10 @@ interface DashboardDetailProps {
     overriding: boolean;
     onStatusUpdate: (status: string) => void;
     onOverride: (vehicleId: string) => void;
+    onOverrideForIncident?: (incidentId: string, vehicleId: string) => void;
 }
 
-export function DashboardDetail({ detail, vehicles, relatedIncidents, organizations, statusBusy, overriding, onStatusUpdate, onOverride }: DashboardDetailProps) {
+export function DashboardDetail({ detail, vehicles, relatedIncidents, organizations, statusBusy, overriding, onStatusUpdate, onOverride, onOverrideForIncident }: DashboardDetailProps) {
     const styles = useStyles();
 
     if (!detail) {
@@ -192,37 +193,85 @@ export function DashboardDetail({ detail, vehicles, relatedIncidents, organizati
                 </div>
 
                 {(detail.status === 'dispatched' || detail.status === 'in_progress') && (
-                    <div className={styles.unitBox}>
-                        <div className={styles.unitBoxHeader}>
-                            <div>
-                                <span className={styles.unitLabel}>Assigned unit</span>
-                                <Text className={styles.unitName}>
-                                    {assignedVehicle ? `${assignedVehicle.license_plate} · ${assignedVehicle.vehicle_type?.replace(/_/g, ' ')}` : detail.assigned_unit_id}
-                                </Text>
-                            </div>
-                            <VetoTimer dispatchedAt={detail.dispatched_at ?? detail.updated_at} />
-                        </div>
-                        {alternatives.length > 0 && (
-                            <>
-                                <Divider />
-                                <div>
-                                    <span className={styles.unitLabel}>Override with available unit</span>
-                                    <div className={styles.altGrid}>
-                                        {alternatives.map(v => (
-                                            <button key={v.id} className={styles.altBtn} onClick={() => onOverride(v.id)} disabled={overriding}>
-                                                <ArrowSyncRegular fontSize={14} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
-                                                <span style={{ flex: 1, textAlign: 'left' }}>
-                                                    {v.license_plate}
-                                                    <span style={{ color: 'var(--color-text-muted)', marginLeft: '6px' }}>{v.vehicle_type?.replace(/_/g, ' ')}</span>
-                                                </span>
-                                                {overriding && <Spinner size="tiny" />}
-                                            </button>
-                                        ))}
+                    relatedIncidents && relatedIncidents.length > 0 ? (
+                        // MCI: render one unit box per child incident
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            {relatedIncidents.map((inc: any, idx: number) => {
+                                const v = vehicles.find((x: any) => x.id === (inc.assigned_unit_id ?? inc.assigned_vehicle_id));
+                                const incAlts = vehicles
+                                    .filter(a => a.status === 'available' && !allUnitIds.includes(a.id))
+                                    .slice(0, 3);
+                                return (
+                                    <div key={inc.id} className={styles.unitBox}>
+                                        <div className={styles.unitBoxHeader}>
+                                            <div>
+                                                <span className={styles.unitLabel}>Unit {idx + 1}</span>
+                                                <Text className={styles.unitName}>
+                                                    {v ? `${v.license_plate} · ${v.vehicle_type?.replace(/_/g, ' ')}` : (inc.assigned_unit_id ?? 'Unassigned')}
+                                                </Text>
+                                            </div>
+                                            <IncidentStatusBadge status={inc.status} />
+                                        </div>
+                                        {incAlts.length > 0 && (
+                                            <>
+                                                <Divider />
+                                                <div>
+                                                    <span className={styles.unitLabel}>Override unit {idx + 1}</span>
+                                                    <div className={styles.altGrid}>
+                                                        {incAlts.map(a => (
+                                                            <button key={a.id} className={styles.altBtn}
+                                                                onClick={() => onOverrideForIncident ? onOverrideForIncident(inc.id, a.id) : onOverride(a.id)}
+                                                                disabled={overriding}>
+                                                                <ArrowSyncRegular fontSize={14} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                                                                <span style={{ flex: 1, textAlign: 'left' }}>
+                                                                    {a.license_plate}
+                                                                    <span style={{ color: 'var(--color-text-muted)', marginLeft: '6px' }}>{a.vehicle_type?.replace(/_/g, ' ')}</span>
+                                                                </span>
+                                                                {overriding && <Spinner size="tiny" />}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        // Single incident: standard unit box
+                        <div className={styles.unitBox}>
+                            <div className={styles.unitBoxHeader}>
+                                <div>
+                                    <span className={styles.unitLabel}>Assigned unit</span>
+                                    <Text className={styles.unitName}>
+                                        {assignedVehicle ? `${assignedVehicle.license_plate} · ${assignedVehicle.vehicle_type?.replace(/_/g, ' ')}` : detail.assigned_unit_id}
+                                    </Text>
                                 </div>
-                            </>
-                        )}
-                    </div>
+                                <VetoTimer dispatchedAt={detail.dispatched_at ?? detail.updated_at} />
+                            </div>
+                            {alternatives.length > 0 && (
+                                <>
+                                    <Divider />
+                                    <div>
+                                        <span className={styles.unitLabel}>Override with available unit</span>
+                                        <div className={styles.altGrid}>
+                                            {alternatives.map(v => (
+                                                <button key={v.id} className={styles.altBtn} onClick={() => onOverride(v.id)} disabled={overriding}>
+                                                    <ArrowSyncRegular fontSize={14} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                                                    <span style={{ flex: 1, textAlign: 'left' }}>
+                                                        {v.license_plate}
+                                                        <span style={{ color: 'var(--color-text-muted)', marginLeft: '6px' }}>{v.vehicle_type?.replace(/_/g, ' ')}</span>
+                                                    </span>
+                                                    {overriding && <Spinner size="tiny" />}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    )
                 )}
 
                 {(detail.status === 'created' || detail.status === 'pending') && (
