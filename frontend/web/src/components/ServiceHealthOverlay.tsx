@@ -11,9 +11,9 @@ const SERVICES = [
 
 export function ServiceHealthOverlay() {
   const [statuses, setStatuses] = useState<Record<string, boolean | null>>({});
-  const [position, setPosition] = useState({ x: 20, y: 100 });
+  const [position, setPosition] = useState({ x: 20, y: 20 });
   const [isDragging, setIsDragging] = useState(false);
-  const dragRef = useRef({ startX: 0, startY: 0, startPosX: 20, startPosY: 100 });
+  const dragRef = useRef({ startX: 0, startY: 0, startPosX: 20, startPosY: 20 });
 
   useEffect(() => {
     let mounted = true;
@@ -55,9 +55,10 @@ export function ServiceHealthOverlay() {
     if (!isDragging) return;
     const dx = e.clientX - dragRef.current.startX;
     const dy = e.clientY - dragRef.current.startY;
+    // right/bottom coords decrease as you drag toward the respective edge, so invert
     setPosition({
-      x: dragRef.current.startPosX + dx,
-      y: dragRef.current.startPosY + dy
+      x: dragRef.current.startPosX - dx,
+      y: dragRef.current.startPosY - dy
     });
   };
 
@@ -74,8 +75,8 @@ export function ServiceHealthOverlay() {
       onPointerCancel={handlePointerUp}
       style={{
         position: 'fixed',
-        top: position.y,
-        left: position.x,
+        bottom: position.y,
+        right: position.x,
         zIndex: 999999, // Must sit above maps, tooltips, modalds, etc
         background: 'rgba(255, 255, 255, 0.9)',
         backdropFilter: 'blur(8px)',
