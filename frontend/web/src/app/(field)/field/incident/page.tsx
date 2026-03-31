@@ -272,14 +272,8 @@ function FieldIncidentContent() {
     }).catch(() => {});
   }, [incident]);
 
-  // Handle DirectionsRenderer cleanup on simulation change
-  useEffect(() => {
-    if (isUnderSimulation && directionsRendererRef.current) {
-      directionsRendererRef.current.setMap(null);
-      directionsRendererRef.current = null;
-      setNavInfo(null);
-    }
-  }, [isUnderSimulation]);
+  // Removed DirectionsRenderer cleanup; we want the track to outline the path to the incident
+  // even under simulation, as requested by the user.
 
   // Update my-location marker + draw route (once)
   useEffect(() => {
@@ -319,8 +313,8 @@ function FieldIncidentContent() {
     }
 
     // Draw route once per incident load
-    // Skip browser-based directions during simulation (we want the simulated vehicle to be our only pos)
-    if (!isUnderSimulation && !routeFetchedRef.current && incident && (incident.status === 'dispatched' || incident.status === 'in_progress')) {
+    // We fetch the route even in simulation so the responder can see the path
+    if (!routeFetchedRef.current && incident && (incident.status === 'dispatched' || incident.status === 'in_progress')) {
       routeFetchedRef.current = true;
       const lat = parseFloat(incident.latitude);
       const lng = parseFloat(incident.longitude);
