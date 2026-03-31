@@ -9,11 +9,11 @@ import { POLLING } from '@/lib/config/polling';
 import {
   getIncident, updateIncidentStatus, requestSupport, getRelatedIncidents,
 } from '@/lib/api/incidents';
-import { listVehicles } from '@/lib/api/tracking';
+import { listVehicles, getActiveSimulations } from '@/lib/api/tracking';
 import { loadGoogleMaps } from '@/lib/maps/loader';
 import { consumeMapLoad } from '@/lib/maps/quota';
 import { showInfoPopup, dismissInfoPopup } from '@/lib/maps/infoPopup';
-import { makeIncidentPin, makeMyLocationPin, INCIDENT_COLOR } from '@/app/(ops)/dashboard/DashboardMap';
+import { makeIncidentPin, makeMyLocationPin, makeVehiclePin, INCIDENT_COLOR } from '@/app/(ops)/dashboard/DashboardMap';
 import { IncidentTypeChip }    from '@/components/IncidentTypeChip';
 import { IncidentStatusBadge } from '@/components/StatusBadge';
 import { ErrorState } from '@/components/ui/ErrorState';
@@ -162,6 +162,8 @@ function FieldIncidentContent() {
   const [error,       setError]       = useState('');
   const [supportType, setSupportType] = useState<string | null>(null);
   const [myLocation,  setMyLocation]  = useState<{lat: number, lng: number} | null>(null);
+  const [isUnderSimulation, setIsUnderSimulation] = useState(false);
+  const [myVehicle, setMyVehicle] = useState<any | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -180,6 +182,24 @@ function FieldIncidentContent() {
     if (user.role !== 'first_responder') router.replace('/dashboard');
   }, [user, router]);
 
+  // Eager simulation check
+  useEffect(() => {
+    if (!token || !mounted) return;
+    const checkSim = async () => {
+      try {
+        const data = await getActiveSimulations(token);
+        const sims = data.simulations || data.active || [];
+        const isSim = sims.some((s: any) => s.vehicleId === myVehicle?.id);
+        if (isSim !== isUnderSimulation) setIsUnderSimulation(isSim);
+      } catch (e) {
+        // ignore errors
+      }
+    };
+    checkSim();
+    const iv = setInterval(checkSim, 10000);
+    return () => clearInterval(iv);
+  }, [token, mounted, myVehicle?.id, isUnderSimulation]);
+
   // Load vehicles once for backup plate lookup
   useEffect(() => {
     if (!token) return;
@@ -195,7 +215,11 @@ function FieldIncidentContent() {
     ]);
     setIncident(inc);
     setRelated(rel);
-    if (veh && veh.length > 0) setVehicles(veh);
+    if (veh && veh.length > 0) {
+      setVehicles(veh);
+      const mine = (veh as any[]).find(v => v.driver_user_id === user?.id);
+      setMyVehicle(mine ?? null);
+    }
     setLoading(false);
   }, POLLING.FIELD);
 
@@ -252,33 +276,38 @@ function FieldIncidentContent() {
   useEffect(() => {
     if (!mapReady || !mapRef.current || !myLocation || !window.google?.maps?.marker) return;
 
-    // My location marker
-    if (myLocMarkerRef.current) {
-      myLocMarkerRef.current.position = myLocation;
-    } else {
-      const myMarker = new google.maps.marker.AdvancedMarkerElement({
-        position: myLocation,
-        map: mapRef.current,
-        title: 'My location',
-        content: makeMyLocationPin(),
-        zIndex: 999,
-      });
-      myMarker.addListener('gmp-click', () => {
-        if (mapContainerRef.current && mapRef.current) {
-          showInfoPopup(mapContainerRef.current, myMarker, mapRef.current, {
-            title: 'Your location',
-            lines: [
-              `Lat: ${myLocation.lat.toFixed(5)}`,
-              `Lng: ${myLocation.lng.toFixed(5)}`,
-            ],
-          }, popupRef);
+    // My location marker (hidden if simulation active)
+    if (isUnderSimulation) {
+      if (myLocMarkerRef.current) { myLocMarkerRef.current.map = null; myLocMarkerRef.current = null; }
+    } else if (myLocation) {
+        if (myLocMarkerRef.current) {
+          myLocMarkerRef.current.position = myLocation;
+        } else {
+          const myMarker = new google.maps.marker.AdvancedMarkerElement({
+            position: myLocation,
+            map: mapRef.current,
+            title: 'My location',
+            content: makeMyLocationPin(),
+            zIndex: 999,
+          });
+          myMarker.addListener('gmp-click', () => {
+            if (mapContainerRef.current && mapRef.current) {
+              showInfoPopup(mapContainerRef.current, myMarker, mapRef.current, {
+                title: 'Your location',
+                lines: [
+                  `Lat: ${myLocation.lat.toFixed(5)}`,
+                  `Lng: ${myLocation.lng.toFixed(5)}`,
+                ],
+              }, popupRef);
+            }
+          });
+          myLocMarkerRef.current = myMarker;
         }
-      });
-      myLocMarkerRef.current = myMarker;
     }
 
     // Draw route once per incident load
-    if (!routeFetchedRef.current && incident && (incident.status === 'dispatched' || incident.status === 'in_progress')) {
+    // Skip browser-based directions during simulation (we want the simulated vehicle to be our only pos)
+    if (!isUnderSimulation && !routeFetchedRef.current && incident && (incident.status === 'dispatched' || incident.status === 'in_progress')) {
       routeFetchedRef.current = true;
       const lat = parseFloat(incident.latitude);
       const lng = parseFloat(incident.longitude);
@@ -316,11 +345,32 @@ function FieldIncidentContent() {
         });
       }
     }
-  }, [myLocation, mapReady, incident]);
+  }, [myLocation, mapReady, incident, isUnderSimulation]);
 
-  // Backup vehicle markers
+  // Backup vehicle markers + Personal vehicle during simulation
+  const myVehMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   useEffect(() => {
     if (!mapReady || !mapRef.current || !window.google?.maps?.marker) return;
+
+    // Handle personal vehicle marker (simulation only)
+    if (isUnderSimulation && myVehicle && myVehicle.latitude && myVehicle.longitude) {
+        const pos = { lat: parseFloat(myVehicle.latitude), lng: parseFloat(myVehicle.longitude) };
+        if (!isNaN(pos.lat) && !isNaN(pos.lng)) {
+            const pin = makeVehiclePin(myVehicle.status, true, true);
+            if (myVehMarkerRef.current) {
+                myVehMarkerRef.current.position = pos;
+                myVehMarkerRef.current.content = pin;
+            } else {
+                myVehMarkerRef.current = new google.maps.marker.AdvancedMarkerElement({
+                    position: pos, map: mapRef.current, title: myVehicle.license_plate, content: pin, zIndex: 1000
+                });
+            }
+        }
+    } else if (myVehMarkerRef.current) {
+        myVehMarkerRef.current.map = null;
+        myVehMarkerRef.current = null;
+    }
+
     // Clear old backup markers
     backupMarkersRef.current.forEach(m => { m.map = null; });
     backupMarkersRef.current = [];
@@ -352,7 +402,7 @@ function FieldIncidentContent() {
       });
       backupMarkersRef.current.push(m);
     });
-  }, [related, vehicles, mapReady]);
+  }, [related, vehicles, mapReady, isUnderSimulation, myVehicle]);
 
   async function handleStatusUpdate(newStatus: 'in_progress' | 'resolved') {
     setError('');
@@ -454,10 +504,18 @@ function FieldIncidentContent() {
                 <span style={{ width: 10, height: 10, borderRadius: '50%', background: INCIDENT_COLOR[(incident.incident_type ?? '').toLowerCase()] ?? '#888', display: 'inline-block', border: '1.5px solid #fff' }} />
                 <span>Incident</span>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#4285F4', display: 'inline-block', border: '1.5px solid #fff' }} />
-                <span>My location</span>
-              </div>
+              {!isUnderSimulation && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#4285F4', display: 'inline-block', border: '1.5px solid #fff' }} />
+                    <span>My location</span>
+                </div>
+              )}
+              {isUnderSimulation && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '3px', background: '#FF8C00', display: 'inline-block', border: '1.5px solid #4285F4' }} />
+                    <span style={{ fontWeight: 600, color: '#4285F4' }}>YOU (SIM)</span>
+                </div>
+              )}
               {related.length > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#0097A7', display: 'inline-block', border: '1.5px solid #fff' }} />

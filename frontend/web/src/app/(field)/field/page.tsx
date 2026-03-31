@@ -7,12 +7,13 @@ import { useAuth } from '@/lib/context/AuthContext';
 import { useAutoRefresh } from '@/lib/hooks/useAutoRefresh';
 import { POLLING } from '@/lib/config/polling';
 import { listOpenIncidents } from '@/lib/api/incidents';
-import { listVehicles } from '@/lib/api/tracking';
+import { listVehicles, getActiveSimulations } from '@/lib/api/tracking';
 import { IncidentTypeChip }    from '@/components/IncidentTypeChip';
 import { IncidentStatusBadge } from '@/components/StatusBadge';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { DashboardMap } from '@/app/(ops)/dashboard/DashboardMap';
+import { VehicleIcon } from '@/components/icons/VehicleIcon';
 
 const useStyles = makeStyles({
   page: {
@@ -78,6 +79,18 @@ const useStyles = makeStyles({
     cursor: 'pointer',
     marginTop: '6px',
   },
+  vehiclePill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '4px 8px',
+    borderRadius: '6px',
+    fontSize: '11px',
+    fontWeight: '600',
+    marginTop: '4px',
+    color: '#fff',
+    letterSpacing: '0.4px'
+  }
 });
 
 export default function FieldPage() {
@@ -87,11 +100,13 @@ export default function FieldPage() {
   const token = user?.access_token ?? '';
 
   const [incidents, setIncidents] = useState<any[]>([]);
-  const [myVehicleId, setMyVehicleId] = useState<string | null>(null);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [myVehicle, setMyVehicle] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const [myLocation, setMyLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [isUnderSimulation, setIsUnderSimulation] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -110,16 +125,39 @@ export default function FieldPage() {
     if (user.role !== 'first_responder') router.replace('/dashboard');
   }, [user, router]);
 
+  // Eager simulation check effect
+  useEffect(() => {
+    if (!token || !mounted) return;
+    const checkSim = async () => {
+      try {
+        const data = await getActiveSimulations(token);
+        const sims = data.simulations || data.active || [];
+        const isSim = sims.some((s: any) => s.vehicleId === myVehicle?.id);
+        if (isSim !== isUnderSimulation) setIsUnderSimulation(isSim);
+      } catch (e) {
+        // ignore errors
+      }
+    };
+    checkSim();
+    const iv = setInterval(checkSim, 10000);
+    return () => clearInterval(iv);
+  }, [token, mounted, myVehicle?.id, isUnderSimulation]);
+
   const load = async () => {
     try {
-      const [data, vehicles] = await Promise.all([
+      const [data, vehs] = await Promise.all([
         listOpenIncidents(token),
         listVehicles(token).catch(() => [] as any[]),
       ]);
       setIncidents(data);
+      setVehicles(vehs);
       // Find the vehicle assigned to this user
-      const mine = (vehicles as any[]).find((v: any) => v.driver_user_id === user?.id);
-      setMyVehicleId(mine?.id ?? null);
+      const mine = (vehs as any[]).find((v: any) => v.driver_user_id === user?.id);
+      setMyVehicle(mine ?? null);
+      if (mine) {
+          // If we have a vehicle, use its location as fallback or for simulation view
+          // But map normally prefers browser GPS (myLocation)
+      }
       setError(null);
     } catch {
       setError('Failed to fetch open incidents');
@@ -138,11 +176,11 @@ export default function FieldPage() {
   // Find the incident assigned to this user's vehicle specifically
   const myIncident = incidents.find(i =>
     (i.status === 'dispatched' || i.status === 'in_progress') &&
-    myVehicleId && (i.assigned_vehicle_id === myVehicleId || i.assigned_unit_id === myVehicleId)
+    myVehicle && (i.assigned_vehicle_id === myVehicle.id || i.assigned_unit_id === myVehicle.id)
   );
 
   const queuedIncidents = incidents.filter(i => 
-    i.status === 'reported' || (i.status === 'dispatched' && i.assigned_vehicle_id !== myVehicleId && i.assigned_unit_id !== myVehicleId)
+    i.status === 'reported' || (i.status === 'dispatched' && i.assigned_vehicle_id !== myVehicle?.id && i.assigned_unit_id !== myVehicle?.id)
   );
 
   if (!mounted) return null;
@@ -154,6 +192,13 @@ export default function FieldPage() {
         <div>
           <Text className={styles.brand}>NERDCO Field</Text>
           <Text as="p" className={styles.userName}>{user?.name}</Text>
+          {myVehicle && (
+              <div className={styles.vehiclePill} style={{ background: isUnderSimulation ? '#FF8C00' : '#005953' }}>
+                  <VehicleIcon type={myVehicle.vehicle_type} color="#fff" size={12} />
+                  <span>{myVehicle.license_plate}</span>
+                  {isUnderSimulation && <span style={{ marginLeft: '4px', opacity: 0.8 }}>· SIM</span>}
+              </div>
+          )}
         </div>
         <div style={{ display: 'flex', gap: '4px' }}>
           <Button appearance="transparent" icon={<PersonRegular />} onClick={() => router.push("/field/profile")} aria-label="Profile" />
@@ -163,11 +208,13 @@ export default function FieldPage() {
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 0 }}>
         <DashboardMap 
           incidents={incidents} 
-          vehicles={[]} 
+          vehicles={vehicles} 
           selectedId={myIncident?.parent_incident_id || myIncident?.id || null} 
           onSelect={() => {}} 
-          myLocation={myLocation}
+          myLocation={isUnderSimulation ? null : myLocation}
           hidePOIs={true}
+          disableAutoZoom={isUnderSimulation}
+          myVehicleId={myVehicle?.id}
         />
       </div>
       <div className={styles.bottomSheet}>

@@ -105,19 +105,34 @@ export function makeIncidentPin(type: string, isSelected: boolean, childCount: n
 }
 
 /** Vehicle pin — coloured square badge with car icon */
-export function makeVehiclePin(status: string, isLinked = false): HTMLElement {
+export function makeVehiclePin(status: string, isLinked = false, isMyVehicle = false): HTMLElement {
   const color = VEHICLE_COLOR[status] ?? '#797775';
-  const size  = isLinked ? 30 : 22;
+  const size  = (isLinked || isMyVehicle) ? 30 : 22;
   const el = document.createElement('div');
   el.style.cssText = `
     width:${size}px;height:${size}px;border-radius:6px;
     background:${color};
-    border:${isLinked ? 3 : 2}px solid #fff;
-    box-shadow:0 2px 7px rgba(0,0,0,0.45)${isLinked ? ',0 0 0 2px ' + color + '88' : ''};
+    border:${(isLinked || isMyVehicle) ? 3 : 2}px solid ${isMyVehicle ? '#4285F4' : '#fff'};
+    box-shadow:0 2px 7px rgba(0,0,0,0.45)${(isLinked || isMyVehicle) ? ',0 0 0 2px ' + (isMyVehicle ? '#4285F4' : color) + '88' : ''};
     display:flex;align-items:center;justify-content:center;
+    position: relative;
   `;
   const iconSize = Math.round(size * 0.65);
   el.innerHTML = `<svg width="${iconSize}" height="${iconSize}" viewBox="0 0 24 24" fill="#fff"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>`;
+  
+  if (isMyVehicle) {
+    const badge = document.createElement('div');
+    badge.style.cssText = `
+      position:absolute;top:-12px;left:50%;transform:translateX(-50%);
+      background:#4285F4;color:#fff;font-size:9px;font-weight:800;
+      border-radius:4px;padding:1px 4px;white-space:nowrap;
+      border:1.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.3);
+      z-index: 2;
+    `;
+    badge.textContent = 'YOU';
+    el.appendChild(badge);
+  }
+
   return el;
 }
 
@@ -196,12 +211,15 @@ interface MapProps {
   simulationPath?: Array<{ lat: number; lng: number }>;
   /** When true, disables all auto-zoom/pan (use during active simulation) */
   disableAutoZoom?: boolean;
+  /** Current user's vehicle ID for highlighting */
+  myVehicleId?:   string | null;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────
 export const DashboardMap = ({
   incidents, vehicles, selectedId, onSelect,
   facilities = [], myLocation, hidePOIs, enableRouting, simulationPath, disableAutoZoom,
+  myVehicleId,
 }: MapProps) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef          = useRef<google.maps.Map | null>(null);
@@ -356,17 +374,19 @@ export const DashboardMap = ({
       if (isNaN(lat) || isNaN(lng)) return;
       const pos      = { lat, lng };
       const isLinked = linkedIds.has(v.id);
+      const isMine   = v.id === myVehicleId;
+
       if (vehMarkersRef.current.has(v.id)) {
         const m = vehMarkersRef.current.get(v.id)!;
-        m.position = pos; m.content = makeVehiclePin(v.status, isLinked);
-        (m as any).zIndex = isLinked ? 50 : 5;
+        m.position = pos; m.content = makeVehiclePin(v.status, isLinked, isMine);
+        (m as any).zIndex = isLinked || isMine ? 50 : 5;
       } else {
-        const pin = makeVehiclePin(v.status, isLinked);
-        const m   = new google.maps.marker.AdvancedMarkerElement({ position: pos, map, title: v.license_plate ?? 'Vehicle', content: pin, zIndex: isLinked ? 50 : 5 });
+        const pin = makeVehiclePin(v.status, isLinked, isMine);
+        const m   = new google.maps.marker.AdvancedMarkerElement({ position: pos, map, title: v.license_plate ?? 'Vehicle', content: pin, zIndex: isLinked || isMine ? 50 : 5 });
         m.addListener('gmp-click', () => {
           if (mapContainerRef.current) {
             showInfoPopup(mapContainerRef.current, m, map, {
-              title: v.license_plate ?? 'Vehicle',
+              title: v.license_plate ?? (isMine ? 'Your Vehicle' : 'Vehicle'),
               lines: [
                 `Type: ${(v.vehicle_type ?? '').replace(/_/g, ' ') || '—'}`,
                 `Status: ${v.status ? v.status[0].toUpperCase() + v.status.slice(1) : '—'}`,
@@ -378,7 +398,7 @@ export const DashboardMap = ({
         vehMarkersRef.current.set(v.id, m);
       }
     });
-  }, [vehicles, incidents, selectedId, mapReady]);
+  }, [vehicles, incidents, selectedId, mapReady, myVehicleId]);
 
   // ── Facility markers ─────────────────────────────────────────────────
   useEffect(() => {
@@ -600,6 +620,7 @@ export const DashboardMap = ({
             <span>{label}</span>
           </div>
         ))}
+        {/* Vehicle Status Section */}
         <div style={{ borderTop: '1px solid var(--color-border)', marginTop: '2px', paddingTop: '4px' }}>
           {[
             { color: '#107C10', label: 'Available' },
@@ -612,6 +633,18 @@ export const DashboardMap = ({
             </div>
           ))}
         </div>
+
+        {/* Personal Unit Highlight */}
+        {myVehicleId && (
+            <div style={{ borderTop: '1px solid var(--color-border)', marginTop: '2px', paddingTop: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ width: 10, height: 10, borderRadius: '3px', background: '#4285F4', display: 'inline-block', border: '1.5px solid #fff', boxShadow: '0 1px 3px rgba(0,0,0,0.3)' }} />
+                    <span style={{ fontWeight: 600, color: '#4285F4' }}>Your Unit</span>
+                </div>
+            </div>
+        )}
+
+        {/* Routing Leg Info */}
         {selectedId && (
           <div style={{ borderTop: '1px solid var(--color-border)', marginTop: '2px', paddingTop: '4px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
