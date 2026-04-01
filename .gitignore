@@ -9,4 +9,4 @@
 # /backend/scripts
 /node_modules
 *.md
-/frontend/mobile
+# /frontend/mobile
