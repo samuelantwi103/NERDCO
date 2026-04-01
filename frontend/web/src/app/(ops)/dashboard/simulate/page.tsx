@@ -407,8 +407,6 @@ export default function SimulatePage() {
   // ── Clean up on unmount ────────────────────────────────────────────────
   useEffect(() => {}, []);
 
-  if (!mounted) return null;
-  if (!user || user.role !== 'system_admin') return null;
 
   const phaseLabel: Record<SimPhase | 'starting', string> = {
     idle:        'Idle',

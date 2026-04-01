@@ -93,13 +93,13 @@ export default function UsersPage() {
   const formValid  = form.name.trim().length >= 2 && EMAIL_RE.test(form.email) && (form.role === 'system_admin' || !!form.organization_id);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
     if (!currentUser) { router.replace('/login'); return; }
     if (currentUser.role !== 'system_admin') router.replace('/dashboard');
   }, [currentUser, router]);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const loadData = async () => {
     try {
@@ -272,6 +272,7 @@ export default function UsersPage() {
       setUsers(u);
     } finally { setLoading(false); }
   }
+
 
   if (!mounted) return null;
   if (!currentUser || currentUser.role !== 'system_admin') return null;

@@ -128,11 +128,13 @@ export default function OrganizationsPage() {
   const token = user?.access_token ?? '';
   const showToast = useShowToast();
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   // Only system_admin may manage organisations
   useEffect(() => {
     if (user && user.role !== 'system_admin') router.replace('/dashboard');
   }, [user, router]);
-  if (!user || user.role !== 'system_admin') return null;
 
   const [orgs,     setOrgs]     = useState<any[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -273,6 +275,9 @@ export default function OrganizationsPage() {
     acc[t] = orgs.filter(o => o.type === t);
     return acc;
   }, {} as any);
+
+  if (!mounted) return null;
+  if (!user || user.role !== 'system_admin') return null;
 
   return (
     <PageShell
