@@ -8,6 +8,8 @@ info:
   version: "1.0.0"
 
 servers:
+  - url: https://nerdco-analytics.onrender.com
+    description: Production
   - url: http://localhost:3004
     description: Local development
 

@@ -8,6 +8,8 @@ info:
   version: "1.0.0"
 
 servers:
+  - url: https://nerdco-tracking.onrender.com
+    description: Production
   - url: http://localhost:3003
     description: Local development (REST)
   - url: ws://localhost:3003

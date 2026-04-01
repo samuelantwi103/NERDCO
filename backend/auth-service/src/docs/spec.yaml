@@ -5,6 +5,8 @@ info:
   version: "1.0.0"
 
 servers:
+  - url: https://nerdco-auth.onrender.com
+    description: Production
   - url: http://localhost:3001
     description: Local development
 
